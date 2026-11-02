@@ -1,0 +1,7 @@
+# TUNE FOR REAL SENSOR: sigma and epsilon are meters of geometric inconsistency.
+mapping:
+  ros__parameters:
+    clipper_sigma: 0.05
+    clipper_epsilon: 0.25
+    clipper_mindist: 0.05
+    clipper_min_inliers: 6

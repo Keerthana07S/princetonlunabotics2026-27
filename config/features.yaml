@@ -1,0 +1,9 @@
+# TUNE FOR REAL SENSOR: keypoint voxel and FPFH radii.
+mapping:
+  ros__parameters:
+    keypoint_voxel: 0.35
+    normal_radius: 0.8
+    fpfh_radius: 1.2
+    max_correspondences: 100
+    max_descriptor_distance: 2.0
+    mutual_correspondences: false

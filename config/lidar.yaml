@@ -1,0 +1,46 @@
+# TUNE FOR REAL SENSOR: range, FOV, bin counts, and noise are not a Unitree L2 model.
+synthetic_lidar:
+  ros__parameters:
+    topic: /lidar/points
+    ground_truth_topic: /sim/ground_truth_pose
+    frame_id: lidar_link
+    rate_hz: 2.0
+    path: line
+    speed_m_s: 0.3
+    # Hold the rover still until the other nodes have finished starting.
+    motion_delay_sec: 8.0
+    yaw_rate_rad_s: 0.15
+    min_range: 0.2
+    max_range: 20.0
+    horizontal_fov_deg: 360.0
+    horizontal_center_deg: 0.0
+    vertical_min_deg: -5.0
+    vertical_max_deg: 30.0
+    azimuth_bins: 90
+    elevation_bins: 8
+    range_noise_std: 0.01
+    seed: 3
+    drop_every_n: 0
+    metrics_path: /workspace/logs/metrics.jsonl
+
+cloud_relay:
+  ros__parameters:
+    input_topic: /points_raw
+    output_topic: /lidar/points
+    min_range: 0.2
+    max_range: 30.0
+    horizontal_fov_deg: 360.0
+    horizontal_center_deg: 0.0
+    vertical_min_deg: -90.0
+    vertical_max_deg: 90.0
+
+unitree_adapter:
+  ros__parameters:
+    input_topic: /unilidar/cloud
+    output_topic: /lidar/points
+    min_range: 0.2
+    max_range: 30.0
+    horizontal_fov_deg: 360.0
+    horizontal_center_deg: 0.0
+    vertical_min_deg: -90.0
+    vertical_max_deg: 90.0

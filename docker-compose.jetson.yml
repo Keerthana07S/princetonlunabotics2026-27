@@ -1,0 +1,10 @@
+# Native Jetson Orin Nano override. Use only on the Orin (JetPack 6, aarch64):
+#   docker compose -f docker-compose.yml -f docker-compose.jetson.yml up -d dev
+# Do not use this file on an amd64 laptop. It does not enable CUDA.
+services:
+  dev:
+    mem_limit: 6g
+    shm_size: 1gb
+  mapping:
+    mem_limit: 6g
+    shm_size: 1gb

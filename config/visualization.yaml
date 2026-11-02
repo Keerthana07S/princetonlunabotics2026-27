@@ -1,0 +1,15 @@
+# Keep map_reliable in sync with config/mapping.yaml.
+mapping_visualizer:
+  ros__parameters:
+    host: 0.0.0.0
+    port: 8080
+    update_hz: 8.0
+    map_topic: /mapping/global_map
+    scan_topic: /mapping/registered_scan
+    pose_topic: /mapping/rover_pose
+    correspondence_topic: /mapping/correspondences
+    map_reliable: true
+    point_size: 0.06
+    max_points: 40000
+    low_confidence: 0.4
+    high_confidence: 1.5

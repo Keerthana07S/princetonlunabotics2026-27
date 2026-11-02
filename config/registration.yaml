@@ -1,0 +1,17 @@
+# TUNE FOR REAL SENSOR: RMSE and ICP distance.
+# registration_mode: scan_to_scan or scan_to_submap
+mapping:
+  ros__parameters:
+    registration_mode: scan_to_scan
+    submap_radius: 8.0
+    min_points: 30
+    max_rmse: 0.12
+    min_fitness: 0.5
+    inlier_threshold: 0.4
+    icp_enabled: true
+    icp_distance: 0.5
+    icp_iterations: 30
+    lidar_x: 0.0
+    lidar_y: 0.0
+    lidar_z: 0.0
+    lidar_yaw: 0.0

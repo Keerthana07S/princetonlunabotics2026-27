@@ -1,0 +1,21 @@
+# TUNE FOR REAL SENSOR: voxel size and outlier radii.
+preprocessing:
+  ros__parameters:
+    input_topic: /lidar/points
+    output_topic: /mapping/processed_scan
+    min_range: 0.2
+    max_range: 20.0
+    voxel_size: 0.2
+    statistical_enabled: true
+    statistical_neighbors: 12
+    statistical_std_ratio: 2.0
+    radius_enabled: false
+    radius: 0.4
+    radius_min_neighbors: 4
+    segment_enabled: false
+    cluster_eps: 0.35
+    cluster_min_points: 8
+    min_cluster_size: 30
+    plane_removal_enabled: false
+    plane_distance: 0.08
+    metrics_path: /workspace/logs/metrics.jsonl

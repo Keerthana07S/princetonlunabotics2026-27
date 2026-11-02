@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/
+logs/*
+!logs/.gitkeep
+bags/*
+!bags/.gitkeep
+*.bag
+*.db3
+.venv/

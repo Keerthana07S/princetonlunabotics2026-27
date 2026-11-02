@@ -1,0 +1,24 @@
+# TUNE FOR REAL SENSOR: voxel resolution, decay, and free-space weights.
+# decay update on a hit: C = C_prev * exp(-decay_lambda * dt) + observation_weight
+mapping:
+  ros__parameters:
+    input_topic: /mapping/processed_scan
+    registered_topic: /mapping/registered_scan
+    map_topic: /mapping/global_map
+    pose_topic: /mapping/rover_pose
+    status_topic: /mapping/registration_status
+    correspondence_topic: /mapping/correspondences
+    map_frame: map
+    base_frame: base_link
+    map_reliable: true
+    voxel_resolution: 0.2
+    observation_weight: 0.35
+    decay_lambda: 0.05
+    max_confidence: 2.0
+    min_confidence: 0.15
+    max_voxels: 200000
+    min_static_observations: 4
+    motion_threshold: 0.15
+    free_weight: 0.3
+    free_hits_to_clear: 2
+    metrics_path: /workspace/logs/metrics.jsonl

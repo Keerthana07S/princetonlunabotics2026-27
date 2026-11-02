@@ -6,8 +6,40 @@ from cv_bridge import CvBridge
 import cv2
 import numpy as np
 from lunarloc import FrameDataReader, CameraDataReader
+import math
 import os
 import time
+
+
+def _number(row, *names):
+    for name in names:
+        if name in row.index:
+            return float(row[name])
+    raise KeyError(names[0])
+
+
+def _orientation(row):
+    """Return x, y, z, w. Euler columns are roll, pitch, yaw in radians."""
+    if "pose.orientation.w" in row.index:
+        return (
+            _number(row, "pose.orientation.x"),
+            _number(row, "pose.orientation.y"),
+            _number(row, "pose.orientation.z"),
+            _number(row, "pose.orientation.w"),
+        )
+    roll = _number(row, "roll")
+    pitch = _number(row, "pitch")
+    yaw = _number(row, "yaw")
+    half_roll, half_pitch, half_yaw = roll * 0.5, pitch * 0.5, yaw * 0.5
+    cr, sr = math.cos(half_roll), math.sin(half_roll)
+    cp, sp = math.cos(half_pitch), math.sin(half_pitch)
+    cy, sy = math.cos(half_yaw), math.sin(half_yaw)
+    return (
+        sr * cp * cy - cr * sp * sy,
+        cr * sp * cy + sr * cp * sy,
+        cr * cp * sy - sr * sp * cy,
+        cr * cp * cy + sr * sp * sy,
+    )
 
 
 class LACPublisher(Node):
@@ -26,35 +58,38 @@ class LACPublisher(Node):
         self.publish_all_frames()
 
     def publish_all_frames(self):
-        rate = self.create_rate(5)
+        # time.sleep, not create_rate().sleep(): the rate timer never fires
+        # until an executor is spinning, and this loop runs before rclpy.spin.
         for idx, row in self.reader.frames.iterrows():
             ts = self.get_clock().now().to_msg()
 
             pose_msg = PoseStamped()
             pose_msg.header.stamp = ts
             pose_msg.header.frame_id = 'map'
-            pose_msg.pose.position.x = float(row['pose.position.x'])
-            pose_msg.pose.position.y = float(row['pose.position.y'])
-            pose_msg.pose.position.z = float(row['pose.position.z'])
-            pose_msg.pose.orientation.x = float(row['pose.orientation.x'])
-            pose_msg.pose.orientation.y = float(row['pose.orientation.y'])
-            pose_msg.pose.orientation.z = float(row['pose.orientation.z'])
-            pose_msg.pose.orientation.w = float(row['pose.orientation.w'])
+            pose_msg.pose.position.x = _number(row, "pose.position.x", "x")
+            pose_msg.pose.position.y = _number(row, "pose.position.y", "y")
+            pose_msg.pose.position.z = _number(row, "pose.position.z", "z")
+            quat_x, quat_y, quat_z, quat_w = _orientation(row)
+            pose_msg.pose.orientation.x = quat_x
+            pose_msg.pose.orientation.y = quat_y
+            pose_msg.pose.orientation.z = quat_z
+            pose_msg.pose.orientation.w = quat_w
             self.pose_pub.publish(pose_msg)
 
             imu_msg = Imu()
             imu_msg.header.stamp = ts
             imu_msg.header.frame_id = 'imu_link'
-            imu_msg.linear_acceleration.x = float(row['imu.accel.x'])
-            imu_msg.linear_acceleration.y = float(row['imu.accel.y'])
-            imu_msg.linear_acceleration.z = float(row['imu.accel.z'])
-            imu_msg.angular_velocity.x = float(row['imu.gyro.x'])
-            imu_msg.angular_velocity.y = float(row['imu.gyro.y'])
-            imu_msg.angular_velocity.z = float(row['imu.gyro.z'])
+            imu_msg.linear_acceleration.x = _number(row, "imu.accel.x", "accel_x")
+            imu_msg.linear_acceleration.y = _number(row, "imu.accel.y", "accel_y")
+            imu_msg.linear_acceleration.z = _number(row, "imu.accel.z", "accel_z")
+            imu_msg.angular_velocity.x = _number(row, "imu.gyro.x", "gyro_x")
+            imu_msg.angular_velocity.y = _number(row, "imu.gyro.y", "gyro_y")
+            imu_msg.angular_velocity.z = _number(row, "imu.gyro.z", "gyro_z")
             self.imu_pub.publish(imu_msg)
 
-            left_img = self.cam_reader.get_image('FrontLeft', idx, 'grayscale')
-            right_img = self.cam_reader.get_image('FrontRight', idx, 'grayscale')
+            frame = int(row["frame"]) if "frame" in row.index else int(idx)
+            left_img = self.cam_reader.get_image('FrontLeft', frame, 'grayscale')
+            right_img = self.cam_reader.get_image('FrontRight', frame, 'grayscale')
 
             if left_img is not None:
                 left_msg = self.bridge.cv2_to_imgmsg(left_img, encoding='mono8')
@@ -69,7 +104,7 @@ class LACPublisher(Node):
                 self.right_img_pub.publish(right_msg)
 
             self.get_logger().info(f'Published frame {idx}')
-            rate.sleep()
+            time.sleep(0.2)
 
 
 def main():

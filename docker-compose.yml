@@ -1,0 +1,43 @@
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: lunar-mapping:humble
+    container_name: lunar-mapping-dev
+    stdin_open: true
+    tty: true
+    working_dir: /workspace
+    command: sleep infinity
+    ports:
+      - "8080:8080"
+    environment:
+      ROS_DOMAIN_ID: "42"
+      RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
+      CYCLONEDDS_URI: file:///opt/lunar/cyclonedds.xml
+      ROS_LOCALHOST_ONLY: "1"
+      LUNAR_CONFIG_DIR: /workspace/config
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./:/workspace
+
+  mapping:
+    image: lunar-mapping:humble
+    container_name: lunar-mapping-run
+    profiles: ["run"]
+    working_dir: /workspace
+    ports:
+      - "8080:8080"
+    environment:
+      ROS_DOMAIN_ID: "42"
+      RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
+      CYCLONEDDS_URI: file:///opt/lunar/cyclonedds.xml
+      ROS_LOCALHOST_ONLY: "1"
+      LUNAR_CONFIG_DIR: /workspace/config
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./:/workspace
+    command:
+      - bash
+      - -lc
+      - source /opt/ros/humble/setup.bash && source /workspace/ros2_ws/install/setup.bash && ros2 launch dynamic_map pipeline.launch.py
