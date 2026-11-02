@@ -38,7 +38,7 @@ class PreprocessingNode(Node):
         self.declare_parameter("min_cluster_size", 30)
         self.declare_parameter("plane_removal_enabled", False)
         self.declare_parameter("plane_distance", 0.08)
-        self.declare_parameter("metrics_path", "/workspace/logs/metrics.jsonl")
+        self.declare_parameter("metrics_path", "/workspace/logs/metrics_preprocessing.jsonl")
         self._metrics = MetricsLogger(str(self.get_parameter("metrics_path").value))
         output = str(self.get_parameter("output_topic").value)
         input_topic = str(self.get_parameter("input_topic").value)

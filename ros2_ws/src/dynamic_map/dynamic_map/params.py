@@ -66,7 +66,7 @@ DEFAULTS: dict[str, Any] = {
     "free_margin": 0.3,
     "free_azimuth_deg": 2.0,
     "free_elevation_deg": 3.0,
-    "metrics_path": "/workspace/logs/metrics.jsonl",
+    "metrics_path": "/workspace/logs/metrics_mapping.jsonl",
 }
 
 

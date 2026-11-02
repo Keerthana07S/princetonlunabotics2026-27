@@ -25,7 +25,9 @@ Launch the synthetic pipeline inside the dev container:
 docker compose exec dev bash -lc "source /opt/ros/humble/setup.bash && source /workspace/ros2_ws/install/setup.bash && ros2 launch dynamic_map pipeline.launch.py"
 ```
 
-Then open `http://localhost:8080`.
+Then open `http://localhost:8080`. The blue trail is ground truth and the red trail is the estimate. Use the "Color by" dropdown to switch the map between confidence and time since each voxel was last seen.
+
+`OMP_NUM_THREADS=4` is set in the image and in `docker-compose.yml`. Without it, Open3D starts one thread per core, and on this laptop each scan took about 5 times longer. A container created before that change needs `docker exec -e OMP_NUM_THREADS=4`.
 
 Cursor can attach with the dev container in `.devcontainer/`. The workspace inside the container is `/workspace`.
 
@@ -58,7 +60,7 @@ Frames: [docs/frames.md](docs/frames.md). Topics: [docs/topics.md](docs/topics.m
 
 ## Packages
 
-- `lidar_interface` converts `PointCloud2`, simulates a rover, and relays an external cloud
+- `lidar_interface` converts `PointCloud2`, simulates a rover on terrain, relays an external cloud, and turns a stereo pair into a cloud (`stereo_cloud`)
 - `pointcloud_processing` filters scans, computes FPFH candidates, calls CLIPPER, and estimates a rigid transform
 - `dynamic_map` keeps the voxel hash map and publishes pose, map, and registration status
 - `mapping_visualizer` is the Viser process
@@ -74,11 +76,25 @@ The image builds [mit-acl/clipper](https://github.com/mit-acl/clipper) at commit
 ## Tests and measurements
 
 ```bash
-docker compose exec dev bash -lc "source /opt/ros/humble/setup.bash && source /workspace/ros2_ws/install/setup.bash && python3 -m pytest /workspace/ros2_ws/src/lidar_interface/test /workspace/ros2_ws/src/pointcloud_processing/test /workspace/ros2_ws/src/dynamic_map/test /workspace/ros2_ws/src/mapping_visualizer/test"
+docker compose exec dev bash -lc "source /opt/ros/humble/setup.bash && source /workspace/ros2_ws/install/setup.bash && python3 -m pytest -q /workspace/ros2_ws/src"
 docker compose exec dev bash -lc "source /opt/ros/humble/setup.bash && source /workspace/ros2_ws/install/setup.bash && python3 /workspace/scripts/run_benchmark.py"
+docker compose exec dev bash -lc "bash /workspace/scripts/run_e2e.sh"
 ```
 
-Benchmark rows are appended to `logs/benchmark.jsonl` by that script. Summarize them from the file rather than copying numbers by hand into a new experiment. The measurements from the run that produced this tree are in [docs/measurements.md](docs/measurements.md) after that script has been executed.
+- `run_benchmark.py` drives the whole synthetic path without ROS, using the parameters in `config/`. Override a parameter with `--set key=value`. It scores the result against ground truth, counts voxels on the objects that appear, disappear, and move, and writes `logs/benchmark_trajectory.jsonl` and `logs/benchmark_trajectory_summary.json`.
+- `run_e2e.sh` runs the ROS launch, checks the Viser page, and calls `scripts/summarize_run.py`, which writes `logs/e2e_summary.json` from the per-node `logs/metrics_*.jsonl` files. There is one file per node, because concurrent appends to a single file on the Windows bind mount corrupted lines.
+
+Results from this tree are in [docs/measurements.md](docs/measurements.md).
+
+## LAC stereo
+
+`ros2 run lidar_interface stereo_cloud` subscribes to a left and a right `sensor_msgs/Image` (`left_topic` and `right_topic`, default `/camera/left/image_raw` and `/camera/right/image_raw`), pairs them by stamp, and publishes `/lidar/points` in the left camera's body frame (x forward, y left, z up). The defaults match the Lunar Autonomy Challenge front cameras: 1.22 rad horizontal field of view and a 0.162 m baseline. To build a ground-truth-posed map from a `.lac` log without ROS:
+
+```bash
+python3 /workspace/scripts/lac_stereo_map.py "/workspace/software/pointclouds/example (2).lac"
+```
+
+The script writes `logs/lac_stereo.ply`, a top-down height image `logs/lac_stereo.png`, and `logs/lac_stereo_summary.json`.
 
 ## Unitree L2
 
@@ -92,7 +108,10 @@ The log is `logs/unitree_probe.txt`. A failed build leaves the generic interface
 
 ## Limitations
 
-- No loop closure and no global pose-graph correction.
+- No loop closure and no global pose-graph correction. On the 9 m synthetic drive, the final error was 0.34 m offline and 0.40 m in the ROS launch, mostly as an underestimate of forward motion.
+- A ray that returns nothing (sky) gives no free-space evidence, so a removed object only clears when there is a surface behind it.
+- Scans published before the mapping node subscribes are dropped. The synthetic end-to-end latency includes the time spent ray casting the scan.
+- The stereo node uses the documented LAC camera geometry, not a calibration file, and has not been run against a live LAC simulator.
 - No IMU fusion. The odometry message can accept one later. The mapper does not read `/sim/ground_truth_pose`.
 - The synthetic scanner is a ray caster, not an L2 beam pattern.
 - Open3D and CLIPPER run on CPU.

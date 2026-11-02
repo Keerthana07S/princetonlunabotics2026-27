@@ -50,7 +50,7 @@ class SyntheticLidarNode(Node):
         self.declare_parameter("range_noise_std", 0.01)
         self.declare_parameter("seed", 7)
         self.declare_parameter("drop_every_n", 0)
-        self.declare_parameter("metrics_path", "/workspace/logs/metrics.jsonl")
+        self.declare_parameter("metrics_path", "/workspace/logs/metrics_synthetic_lidar.jsonl")
 
         topic = str(self.get_parameter("topic").value)
         self._publisher = self.create_publisher(PointCloud2, topic, qos_profile_sensor_data)

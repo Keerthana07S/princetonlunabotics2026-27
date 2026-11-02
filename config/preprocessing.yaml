@@ -18,4 +18,4 @@ preprocessing:
     min_cluster_size: 30
     plane_removal_enabled: false
     plane_distance: 0.08
-    metrics_path: /workspace/logs/metrics.jsonl
+    metrics_path: /workspace/logs/metrics_preprocessing.jsonl

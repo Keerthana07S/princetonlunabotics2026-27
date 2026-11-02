@@ -2,6 +2,8 @@
 # Run the synthetic pipeline launch for DURATION seconds, then summarize the
 # metrics it wrote. Usage: scripts/run_e2e.sh [DURATION_S]
 set -eo pipefail
+# Job control gives the background launch (and its nodes) normal SIGINT handling.
+set -m
 duration="${1:-50}"
 source /opt/ros/humble/setup.bash
 source /workspace/ros2_ws/install/setup.bash

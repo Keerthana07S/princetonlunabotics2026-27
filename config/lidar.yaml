@@ -23,7 +23,7 @@ synthetic_lidar:
     range_noise_std: 0.01
     seed: 3
     drop_every_n: 0
-    metrics_path: /workspace/logs/metrics.jsonl
+    metrics_path: /workspace/logs/metrics_synthetic_lidar.jsonl
 
 cloud_relay:
   ros__parameters:

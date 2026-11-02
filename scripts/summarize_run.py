@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Summarize one live launch from logs/metrics.jsonl.
+"""Summarize one live launch from the per-node logs/metrics_*.jsonl files.
 
 Only rows written after ``--since`` (Unix wall time) are used. Tracking error
 compares each accepted mapping pose with the synthetic ground truth of the scan
@@ -39,19 +39,22 @@ def rate(rows: list[dict]) -> float | None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--metrics", default="/workspace/logs/metrics.jsonl")
+    parser.add_argument("--metrics-glob", default="/workspace/logs/metrics_*.jsonl")
     parser.add_argument("--since", type=float, required=True, help="Unix time the launch started")
     parser.add_argument("--output", default="/workspace/logs/e2e_summary.json")
     args = parser.parse_args()
 
     rows = []
-    for line in Path(args.metrics).read_text(encoding="utf-8").splitlines():
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if float(row.get("wall_time", 0.0)) >= args.since:
-            rows.append(row)
+    undecodable = 0
+    for path in sorted(Path("/").glob(args.metrics_glob.lstrip("/"))):
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                undecodable += 1
+                continue
+            if float(row.get("wall_time", 0.0)) >= args.since:
+                rows.append(row)
     by_stage: dict[str, list[dict]] = {}
     for row in rows:
         by_stage.setdefault(row["stage"], []).append(row)
@@ -86,6 +89,7 @@ def main() -> None:
 
     moving = [row for row in scans if float(row.get("scene_time", 0.0)) > 0.0]
     summary = {
+        "undecodable_metric_lines": undecodable,
         "window_s": (max(float(r["wall_time"]) for r in rows) - min(float(r["wall_time"]) for r in rows)) if rows else 0,
         "synthetic_scans": len(scans),
         "synthetic_scans_while_driving": len(moving),

@@ -26,6 +26,7 @@ setup(
             "synthetic_lidar = lidar_interface.nodes.synthetic_lidar_node:main",
             "cloud_relay = lidar_interface.nodes.cloud_relay_node:main",
             "unitree_adapter = lidar_interface.nodes.unitree_adapter_node:main",
+            "stereo_cloud = lidar_interface.nodes.stereo_cloud_node:main",
         ],
     },
 )
