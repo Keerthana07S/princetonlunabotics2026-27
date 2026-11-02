@@ -82,3 +82,24 @@ def test_scan_to_submap_recovers_a_known_motion() -> None:
     second = session.process_scan(transform_points(cloud, invert_transform(motion)), 1.0)
     assert second.accepted, second.reason
     assert np.allclose(second.transform[:3, 3], motion[:3, 3], atol=0.15)
+
+
+def test_default_settings_track_the_synthetic_terrain_drive() -> None:
+    from dynamic_map.params import session_config
+    from lidar_interface.synthetic_scene import LidarModel, demo_scene, line_pose
+    from pointcloud_processing.preprocessing import PreprocessConfig, preprocess
+
+    scene = demo_scene()
+    model = LidarModel(vertical_min_deg=-25.0, vertical_max_deg=15.0, azimuth_bins=240, elevation_bins=16, seed=3)
+    session = MappingSession(session_config({}))
+    start = None
+    accepted = 0
+    for index in range(11):
+        stamp = 0.5 * index
+        pose = scene.sensor_pose(line_pose(stamp, 0.3))
+        start = pose.transform if start is None else start
+        cloud = preprocess(scene.scan(pose, stamp, model), PreprocessConfig(voxel_size=0.2, statistical_neighbors=12))
+        accepted += session.process_scan(cloud, stamp).accepted
+    truth = np.linalg.inv(start) @ pose.transform
+    assert accepted >= 9
+    assert np.linalg.norm(session.transform[:3, 3] - truth[:3, 3]) < 0.15

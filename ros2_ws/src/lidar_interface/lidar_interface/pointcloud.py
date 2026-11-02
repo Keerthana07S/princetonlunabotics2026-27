@@ -136,20 +136,22 @@ def from_pointcloud2(msg: PointCloud2) -> PointCloud:
 
 
 def to_pointcloud2(cloud: PointCloud) -> PointCloud2:
-    """Pack xyz, and optional intensity and label, into a PointCloud2 message."""
+    """Pack xyz, optional intensity and label, and any extras into float32 fields."""
     count = cloud.count
     names = ["x", "y", "z"]
     arrays = [cloud.xyz[:, 0], cloud.xyz[:, 1], cloud.xyz[:, 2]]
-    if cloud.intensity is not None:
-        if cloud.intensity.shape[0] != count:
-            raise ValueError("intensity length does not match xyz")
-        names.append("intensity")
-        arrays.append(cloud.intensity)
-    if cloud.label is not None:
-        if cloud.label.shape[0] != count:
-            raise ValueError("label length does not match xyz")
-        names.append("label")
-        arrays.append(cloud.label)
+    optional = [("intensity", cloud.intensity), ("label", cloud.label)]
+    optional += sorted((cloud.extras or {}).items())
+    for name, values in optional:
+        if values is None:
+            continue
+        if name in names:
+            raise ValueError(f"duplicate field '{name}'")
+        values = np.asarray(values).reshape(-1)
+        if values.shape[0] != count:
+            raise ValueError(f"{name} length does not match xyz")
+        names.append(name)
+        arrays.append(values)
 
     dtype = np.dtype([(name, "<f4") for name in names])
     packed = np.empty(count, dtype=dtype)

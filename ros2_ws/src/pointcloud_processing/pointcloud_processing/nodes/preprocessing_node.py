@@ -80,6 +80,7 @@ class PreprocessingNode(Node):
             duration_s=time.perf_counter() - started,
             input_points=cloud.count,
             output_points=output.count,
+            stamp=cloud.stamp_sec,
         )
 
 

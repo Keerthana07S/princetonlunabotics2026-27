@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import open3d as o3d
+from scipy.spatial import cKDTree
 
 from lidar_interface.geometry import transform_points
 
@@ -17,8 +18,12 @@ logger = logging.getLogger(__name__)
 class RegistrationConfig:
     """Acceptance thresholds. A failed registration must not be integrated.
 
-    RMSE is meters. Fitness is the fraction of inlier pairs under
-    ``inlier_threshold``.
+    Without full clouds the gate is on the CLIPPER pairs: RMSE in meters and
+    fitness, the fraction of pairs under ``inlier_threshold``. With full
+    clouds the gate also requires the aligned clouds to agree: at least
+    ``min_overlap`` of source points within ``overlap_distance`` of the
+    target, and the RMSE of those points under ``max_rmse``. ``min_fitness``
+    then checks that the final transform still agrees with CLIPPER's pairs.
     """
 
     max_rmse: float = 0.2
@@ -28,11 +33,19 @@ class RegistrationConfig:
     icp_enabled: bool = True
     icp_distance: float = 0.35
     icp_iterations: int = 30
+    icp_point_to_plane: bool = True
+    icp_normal_radius: float = 0.6
+    overlap_distance: float = 0.3
+    min_overlap: float = 0.5
 
 
 @dataclass
 class RegistrationResult:
-    """``T_target_source`` maps source points into the target frame: ``p_t = T p_s``."""
+    """``T_target_source`` maps source points into the target frame: ``p_t = T p_s``.
+
+    ``rmse`` is over the full clouds when they were given, otherwise over the
+    CLIPPER pairs. ``overlap`` is 0 when no full clouds were given.
+    """
 
     accepted: bool
     transform: np.ndarray
@@ -40,6 +53,7 @@ class RegistrationResult:
     fitness: float
     inlier_count: int
     reason: str
+    overlap: float = 0.0
 
 
 def _rejected(reason: str, count: int = 0) -> RegistrationResult:
@@ -91,8 +105,50 @@ def alignment_error(source: np.ndarray, target: np.ndarray, transform: np.ndarra
     return rmse, fitness
 
 
-def refine_icp(source: np.ndarray, target: np.ndarray, initial: np.ndarray, config: RegistrationConfig) -> np.ndarray:
-    """Point-to-point ICP. The initial matrix is returned when a cloud is too small."""
+def cloud_agreement(
+    source: np.ndarray,
+    target: np.ndarray,
+    transform: np.ndarray,
+    distance: float,
+    target_normals: np.ndarray | None = None,
+) -> tuple[float, float]:
+    """Residual RMSE of source points within ``distance`` of the target, and the fraction that are.
+
+    With ``target_normals`` the residual is point-to-plane, which stays near
+    the sensor noise for correctly aligned surfaces even when the two clouds
+    were sampled at different places. Without normals it is point-to-point.
+    """
+    if source.shape[0] == 0 or target.shape[0] == 0:
+        return float("inf"), 0.0
+    moved = transform_points(source, transform)
+    nearest, index = cKDTree(target).query(moved, k=1, distance_upper_bound=distance)
+    close = np.isfinite(nearest)
+    if not np.any(close):
+        return float("inf"), 0.0
+    if target_normals is None:
+        residual = nearest[close]
+    else:
+        matched = index[close]
+        residual = np.einsum("ij,ij->i", moved[close] - target[matched], target_normals[matched])
+    return float(np.sqrt(np.mean(residual ** 2))), float(np.mean(close))
+
+
+def estimate_normals(points: np.ndarray, radius: float, max_nn: int = 60) -> np.ndarray:
+    """PCA normals. The radius must span several scan rings or ground normals tilt toward the sensor."""
+    cloud = o3d.geometry.PointCloud()
+    cloud.points = o3d.utility.Vector3dVector(np.asarray(points, dtype=np.float64).reshape(-1, 3))
+    cloud.estimate_normals(o3d.geometry.KDTreeSearchParamHybrid(radius=float(radius), max_nn=int(max_nn)))
+    return np.asarray(cloud.normals, dtype=np.float64)
+
+
+def refine_icp(
+    source: np.ndarray,
+    target: np.ndarray,
+    initial: np.ndarray,
+    config: RegistrationConfig,
+    target_normals: np.ndarray | None = None,
+) -> np.ndarray:
+    """Point-to-plane (or point-to-point) ICP. The initial matrix is returned when a cloud is too small."""
     src = np.asarray(source, dtype=np.float64).reshape(-1, 3)
     dst = np.asarray(target, dtype=np.float64).reshape(-1, 3)
     if src.shape[0] < 10 or dst.shape[0] < 10:
@@ -101,12 +157,19 @@ def refine_icp(source: np.ndarray, target: np.ndarray, initial: np.ndarray, conf
     target_cloud = o3d.geometry.PointCloud()
     source_cloud.points = o3d.utility.Vector3dVector(src)
     target_cloud.points = o3d.utility.Vector3dVector(dst)
+    if config.icp_point_to_plane:
+        if target_normals is None:
+            target_normals = estimate_normals(dst, config.icp_normal_radius)
+        target_cloud.normals = o3d.utility.Vector3dVector(target_normals)
+        estimation = o3d.pipelines.registration.TransformationEstimationPointToPlane()
+    else:
+        estimation = o3d.pipelines.registration.TransformationEstimationPointToPoint()
     result = o3d.pipelines.registration.registration_icp(
         source_cloud,
         target_cloud,
         float(config.icp_distance),
         np.asarray(initial, dtype=np.float64),
-        o3d.pipelines.registration.TransformationEstimationPointToPoint(),
+        estimation,
         o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=int(config.icp_iterations)),
     )
     return np.asarray(result.transformation, dtype=np.float64)
@@ -141,22 +204,40 @@ def register_correspondences(
         transform,
         config.inlier_threshold,
     )
-    if config.icp_enabled and source_cloud is not None and target_cloud is not None:
-        refined = refine_icp(source_cloud, target_cloud, transform, config)
-        refined_rmse, refined_fitness = alignment_error(
-            source[pairs[:, 0]],
-            target[pairs[:, 1]],
-            refined,
-            config.inlier_threshold,
+    if source_cloud is None or target_cloud is None:
+        accepted = rmse <= config.max_rmse and fitness >= config.min_fitness
+        if not accepted:
+            logger.info("Rejected registration rmse=%.4f fitness=%.3f", rmse, fitness)
+        return RegistrationResult(
+            accepted=accepted,
+            transform=transform,
+            rmse=rmse,
+            fitness=fitness,
+            inlier_count=int(pairs.shape[0]),
+            reason="accepted" if accepted else "quality_gate",
         )
-        if refined_rmse <= rmse:
-            transform = refined
-            rmse = refined_rmse
-            fitness = refined_fitness
-    accepted = rmse <= config.max_rmse and fitness >= config.min_fitness
+
+    full_source = np.asarray(source_cloud, dtype=np.float64).reshape(-1, 3)
+    full_target = np.asarray(target_cloud, dtype=np.float64).reshape(-1, 3)
+    normals = None
+    if config.icp_point_to_plane and full_target.shape[0] >= 10:
+        normals = estimate_normals(full_target, config.icp_normal_radius)
+    candidates = [transform]
+    if config.icp_enabled:
+        candidates.append(refine_icp(full_source, full_target, transform, config, normals))
+    best = None
+    for candidate in candidates:
+        cloud_rmse, overlap = cloud_agreement(full_source, full_target, candidate, config.overlap_distance, normals)
+        if best is None or (overlap, -cloud_rmse) > (best[2], -best[1]):
+            best = (candidate, cloud_rmse, overlap)
+    transform, rmse, overlap = best
+    _pair_rmse, fitness = alignment_error(source[pairs[:, 0]], target[pairs[:, 1]], transform, config.inlier_threshold)
+    accepted = rmse <= config.max_rmse and overlap >= config.min_overlap and fitness >= config.min_fitness
     reason = "accepted" if accepted else "quality_gate"
     if not accepted:
-        logger.info("Rejected registration rmse=%.4f fitness=%.3f", rmse, fitness)
+        logger.info(
+            "Rejected registration cloud_rmse=%.4f overlap=%.3f pair_fitness=%.3f", rmse, overlap, fitness
+        )
     return RegistrationResult(
         accepted=accepted,
         transform=transform,
@@ -164,4 +245,5 @@ def register_correspondences(
         fitness=fitness,
         inlier_count=int(pairs.shape[0]),
         reason=reason,
+        overlap=overlap,
     )

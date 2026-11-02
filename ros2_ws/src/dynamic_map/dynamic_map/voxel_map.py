@@ -1,7 +1,11 @@
 """Persistent spatial voxel hash map.
 
-Unobserved space stays unknown. Free-space updates apply only to voxels a
-sensor ray actually crosses, and only when that voxel already exists.
+Unobserved space stays unknown. Free-space evidence applies only to voxels
+that already exist, and only when the current scan saw past them: the scan is
+binned into an azimuth/elevation range image, and a stored voxel is "seen
+through" when every populated bin around its direction measured a range
+beyond it by more than a margin. Requiring the whole neighbourhood keeps
+grazing rays from erasing ground.
 """
 
 from __future__ import annotations
@@ -47,15 +51,22 @@ class MapConfig:
     contradiction_factor: float = 0.5
     free_weight: float = 0.3
     free_hits_to_clear: int = 2
+    free_margin: float = 0.3
+    free_azimuth_deg: float = 2.0
+    free_elevation_deg: float = 3.0
 
 
 @dataclass
 class MapCloud:
-    """Exported geometry split by the static / dynamic label."""
+    """Exported geometry split by the static / dynamic label.
+
+    ``last_observed`` is the stamp of the most recent hit on each voxel.
+    """
 
     xyz: np.ndarray
     confidence: np.ndarray
     dynamic: np.ndarray
+    last_observed: np.ndarray
 
 
 class VoxelMap:
@@ -87,10 +98,20 @@ class VoxelMap:
         """
         xyz = np.asarray(points, dtype=np.float64).reshape(-1, 3)
         sensor = np.asarray(origin, dtype=np.float64).reshape(3)
-        finite = np.isfinite(xyz).all(axis=1)
-        for point in xyz[finite]:
-            self._apply_free_space(sensor, point, stamp)
-            self._observe(point, stamp)
+        xyz = xyz[np.isfinite(xyz).all(axis=1)]
+        if xyz.shape[0] == 0:
+            self.prune(stamp)
+            return
+        keys = np.floor(xyz / self.config.resolution).astype(np.int64)
+        unique_keys, inverse = np.unique(keys, axis=0, return_inverse=True)
+        inverse = inverse.reshape(-1)
+        sums = np.zeros((unique_keys.shape[0], 3), dtype=np.float64)
+        np.add.at(sums, inverse, xyz)
+        means = sums / np.bincount(inverse, minlength=unique_keys.shape[0])[:, None]
+        hit_keys = {(int(k[0]), int(k[1]), int(k[2])) for k in unique_keys}
+        self._apply_free_space(sensor, xyz, hit_keys, stamp)
+        for key, mean in zip(unique_keys, means):
+            self._observe(mean, stamp, (int(key[0]), int(key[1]), int(key[2])))
         self.prune(stamp)
 
     def decay_to(self, stamp: float) -> None:
@@ -129,18 +150,14 @@ class VoxelMap:
                 xyz=np.zeros((0, 3)),
                 confidence=np.zeros((0,)),
                 dynamic=np.zeros((0,), dtype=bool),
+                last_observed=np.zeros((0,)),
             )
-        points = []
-        confidence = []
-        dynamic = []
-        for voxel in self.voxels.values():
-            points.append(voxel.point)
-            confidence.append(voxel.confidence)
-            dynamic.append(voxel.dynamic)
+        voxels = list(self.voxels.values())
         return MapCloud(
-            xyz=np.vstack(points),
-            confidence=np.asarray(confidence, dtype=np.float64),
-            dynamic=np.asarray(dynamic, dtype=bool),
+            xyz=np.vstack([voxel.point for voxel in voxels]),
+            confidence=np.asarray([voxel.confidence for voxel in voxels], dtype=np.float64),
+            dynamic=np.asarray([voxel.dynamic for voxel in voxels], dtype=bool),
+            last_observed=np.asarray([voxel.last_observed for voxel in voxels], dtype=np.float64),
         )
 
     def static_points(self, stamp: float) -> np.ndarray:
@@ -171,8 +188,9 @@ class VoxelMap:
             return 5.0
         return max(1.0, 3.0 / self.config.decay_lambda)
 
-    def _observe(self, point: np.ndarray, stamp: float) -> None:
-        key = self.index_of(point)
+    def _observe(self, point: np.ndarray, stamp: float, key: tuple[int, int, int] | None = None) -> None:
+        if key is None:
+            key = self.index_of(point)
         voxel = self.voxels.get(key)
         weight = self.config.observation_weight
         if voxel is None:
@@ -209,14 +227,47 @@ class VoxelMap:
         voxel.last_observed = stamp
         voxel.free_count = 0
 
-    def _apply_free_space(self, origin: np.ndarray, endpoint: np.ndarray, stamp: float) -> None:
-        end_index = self.index_of(endpoint)
-        for key in traverse_voxels(origin, endpoint, self.config.resolution):
-            if key == end_index:
-                continue
-            voxel = self.voxels.get(key)
-            if voxel is None:
-                continue
+    def _apply_free_space(
+        self,
+        origin: np.ndarray,
+        points: np.ndarray,
+        hit_keys: set[tuple[int, int, int]],
+        stamp: float,
+    ) -> None:
+        if not self.voxels:
+            return
+        keys = [key for key in self.voxels if key not in hit_keys]
+        if not keys:
+            return
+        stored = np.vstack([self.voxels[key].point for key in keys])
+        az_step = math.radians(self.config.free_azimuth_deg)
+        el_step = math.radians(self.config.free_elevation_deg)
+
+        def bins(offsets: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+            ranges = np.linalg.norm(offsets, axis=1)
+            azimuth = np.arctan2(offsets[:, 1], offsets[:, 0])
+            elevation = np.arcsin(np.clip(offsets[:, 2] / np.maximum(ranges, 1e-9), -1.0, 1.0))
+            return (
+                np.floor((azimuth + math.pi) / az_step).astype(np.int64),
+                np.floor((elevation + 0.5 * math.pi) / el_step).astype(np.int64),
+                ranges,
+            )
+
+        az_count = int(math.ceil(2.0 * math.pi / az_step))
+        el_count = int(math.ceil(math.pi / el_step)) + 1
+        hit_az, hit_el, hit_range = bins(points - origin)
+        image = np.full((az_count, el_count + 2), np.inf, dtype=np.float64)
+        np.minimum.at(image, (hit_az % az_count, hit_el + 1), hit_range)
+
+        voxel_az, voxel_el, voxel_range = bins(stored - origin)
+        required = voxel_range + self.config.free_margin + self.config.resolution
+        seen_through = np.isfinite(image[voxel_az % az_count, voxel_el + 1])
+        for d_az in (-1, 0, 1):
+            for d_el in (-1, 0, 1):
+                measured = image[(voxel_az + d_az) % az_count, voxel_el + 1 + d_el]
+                seen_through &= ~np.isfinite(measured) | (measured > required)
+        for row in np.flatnonzero(seen_through):
+            voxel = self.voxels[keys[int(row)]]
             voxel.last_free = stamp
             voxel.free_count += 1
             updated = self.decayed_confidence(voxel, stamp) - self.config.free_weight

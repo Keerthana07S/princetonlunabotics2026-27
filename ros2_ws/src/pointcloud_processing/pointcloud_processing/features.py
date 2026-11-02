@@ -26,6 +26,8 @@ class FeatureConfig:
     max_correspondences: int = 80
     max_descriptor_distance: float = 1.5
     mutual: bool = True
+    candidates_per_keypoint: int = 1
+    gate_radius: float = 0.0
 
 
 @dataclass
@@ -71,14 +73,27 @@ def extract_features(points: np.ndarray, config: FeatureConfig, sensor_origin: n
     return FeatureSet(xyz=keypoints, descriptors=descriptors)
 
 
-def candidate_correspondences(source: FeatureSet, target: FeatureSet, config: FeatureConfig) -> np.ndarray:
-    """Mutual nearest neighbors in FPFH space, capped at ``max_correspondences``.
+def candidate_correspondences(
+    source: FeatureSet,
+    target: FeatureSet,
+    config: FeatureConfig,
+    predicted: np.ndarray | None = None,
+) -> np.ndarray:
+    """Putative pairs from FPFH similarity, capped at ``max_correspondences``.
+
+    With ``predicted`` (a ``T_target_source`` guess) and a positive
+    ``gate_radius``, each source keypoint is matched only against target
+    keypoints within ``gate_radius`` of its predicted position, keeping the
+    ``candidates_per_keypoint`` closest descriptors. Otherwise this is
+    (optionally mutual) nearest neighbour matching in FPFH space.
 
     The result is an ``(K, 2)`` int array of ``(source_index, target_index)``.
     This is a putative set. It is not the CLIPPER inlier decision.
     """
     if source.count == 0 or target.count == 0:
         return np.zeros((0, 2), dtype=np.int32)
+    if predicted is not None and config.gate_radius > 0.0:
+        return _gated_candidates(source, target, config, np.asarray(predicted, dtype=np.float64))
     target_tree = cKDTree(target.descriptors)
     distances, indices = target_tree.query(source.descriptors, k=1)
     distances = np.atleast_1d(np.asarray(distances, dtype=np.float64))
@@ -100,7 +115,30 @@ def candidate_correspondences(source: FeatureSet, target: FeatureSet, config: Fe
             continue
         pairs.append((source_index, int(target_index)))
         pair_distance.append(float(distance))
+    return _best_pairs(pairs, pair_distance, config.max_correspondences)
+
+
+def _gated_candidates(source: FeatureSet, target: FeatureSet, config: FeatureConfig, predicted: np.ndarray) -> np.ndarray:
+    moved = source.xyz @ predicted[:3, :3].T + predicted[:3, 3]
+    nearby = cKDTree(target.xyz).query_ball_point(moved, r=float(config.gate_radius))
+    per_keypoint = max(1, int(config.candidates_per_keypoint))
+    pairs: list[tuple[int, int]] = []
+    pair_distance: list[float] = []
+    for source_index, neighbours in enumerate(nearby):
+        if not neighbours:
+            continue
+        neighbours = np.asarray(neighbours, dtype=np.int64)
+        distances = np.linalg.norm(target.descriptors[neighbours] - source.descriptors[source_index], axis=1)
+        keep = distances <= config.max_descriptor_distance
+        neighbours, distances = neighbours[keep], distances[keep]
+        for row in np.argsort(distances)[:per_keypoint]:
+            pairs.append((source_index, int(neighbours[row])))
+            pair_distance.append(float(distances[row]))
+    return _best_pairs(pairs, pair_distance, config.max_correspondences)
+
+
+def _best_pairs(pairs: list[tuple[int, int]], pair_distance: list[float], limit: int) -> np.ndarray:
     if not pairs:
         return np.zeros((0, 2), dtype=np.int32)
-    order = np.argsort(np.asarray(pair_distance))[: int(config.max_correspondences)]
+    order = np.argsort(np.asarray(pair_distance), kind="stable")[: int(limit)]
     return np.asarray(pairs, dtype=np.int32)[order]

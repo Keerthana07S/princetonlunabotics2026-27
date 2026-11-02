@@ -42,6 +42,80 @@ class Box:
 
 
 @dataclass
+class Mound:
+    """A Gaussian hill (positive ``amplitude``) or a crater with a raised rim (negative)."""
+
+    center: tuple[float, float]
+    amplitude: float
+    sigma: float
+
+
+@dataclass
+class Terrain:
+    """Height field ``z = h(x, y)`` built from gentle waves plus mounds and craters.
+
+    Rays are intersected by marching at ``march_step`` meters and interpolating
+    the crossing, so slopes much steeper than the step allows are not modelled.
+    """
+
+    name: str
+    base_height: float = 0.0
+    wave_amplitude: float = 0.06
+    wave_length: float = 7.0
+    mounds: list[Mound] = field(default_factory=list)
+    march_step: float = 0.1
+
+    def active(self, time_sec: float) -> bool:
+        del time_sec
+        return True
+
+    def height(self, x: np.ndarray, y: np.ndarray) -> np.ndarray:
+        x = np.asarray(x, dtype=np.float64)
+        y = np.asarray(y, dtype=np.float64)
+        k = 2.0 * np.pi / self.wave_length
+        z = self.base_height + self.wave_amplitude * (np.sin(k * x) * np.cos(0.7 * k * y) + 0.5 * np.sin(1.9 * k * y + 0.4))
+        for mound in self.mounds:
+            radius_sq = (x - mound.center[0]) ** 2 + (y - mound.center[1]) ** 2
+            bowl = np.exp(-radius_sq / (2.0 * mound.sigma * mound.sigma))
+            if mound.amplitude >= 0.0:
+                z = z + mound.amplitude * bowl
+            else:
+                rim_radius = 1.6 * mound.sigma
+                rim = np.exp(-((np.sqrt(radius_sq) - rim_radius) ** 2) / (2.0 * (0.35 * mound.sigma) ** 2))
+                z = z + mound.amplitude * bowl - 0.35 * mound.amplitude * rim
+        return z
+
+    def intersect(self, origin: np.ndarray, directions: np.ndarray, max_range: float) -> np.ndarray:
+        """Distance along each unit ray to the first terrain crossing, ``inf`` for a miss."""
+        times = np.full(directions.shape[0], np.inf, dtype=np.float64)
+        candidates = np.flatnonzero(directions[:, 2] < 0.05)
+        if candidates.size == 0:
+            return times
+        steps = np.arange(1, int(np.ceil(max_range / self.march_step)) + 1, dtype=np.float64) * self.march_step
+        rays = directions[candidates]
+        samples = origin[None, None, :] + rays[:, None, :] * steps[None, :, None]
+        below = samples[:, :, 2] <= self.height(samples[:, :, 0], samples[:, :, 1])
+        hit = below.any(axis=1)
+        if not np.any(hit):
+            return times
+        first = np.argmax(below, axis=1)
+        rows = np.flatnonzero(hit)
+        index = first[rows]
+        t_after = steps[index]
+        t_before = np.where(index > 0, steps[np.maximum(index - 1, 0)], 0.0)
+        ray = rays[rows]
+        before_point = origin + ray * t_before[:, None]
+        after_point = origin + ray * t_after[:, None]
+        gap_before = before_point[:, 2] - self.height(before_point[:, 0], before_point[:, 1])
+        gap_after = after_point[:, 2] - self.height(after_point[:, 0], after_point[:, 1])
+        denominator = gap_before - gap_after
+        safe = np.where(np.abs(denominator) > 1e-9, denominator, 1.0)
+        fraction = np.clip(np.where(np.abs(denominator) > 1e-9, gap_before / safe, 1.0), 0.0, 1.0)
+        times[candidates[rows]] = t_before + fraction * (t_after - t_before)
+        return times
+
+
+@dataclass
 class LidarModel:
     """Generic spinning sample pattern. Angles are degrees and ranges are meters.
 
@@ -77,9 +151,10 @@ class RoverPose:
         return make_transform(self.rotation, self.position)
 
 
-def line_pose(time_sec: float, speed: float) -> RoverPose:
-    """Drive forward along +x at a constant speed."""
-    return RoverPose(position=np.array([speed * time_sec, 0.0, 0.0]), yaw=0.0)
+def line_pose(time_sec: float, speed: float, max_distance: float = float("inf")) -> RoverPose:
+    """Drive forward along +x at a constant speed and stop after ``max_distance``."""
+    distance = min(speed * max(time_sec, 0.0), max_distance)
+    return RoverPose(position=np.array([distance, 0.0, 0.0]), yaw=0.0)
 
 
 def circle_pose(time_sec: float, speed: float, yaw_rate: float) -> RoverPose:
@@ -134,13 +209,38 @@ def _ray_box(origin: np.ndarray, direction: np.ndarray, minimum: np.ndarray, max
 
 
 class Scene:
-    """A small world of boxes and spheres sampled by ray casting."""
+    """A world of terrain, boxes, and spheres sampled by ray casting.
 
-    def __init__(self, primitives: list[Sphere | Box]) -> None:
+    ``sensor_height`` is the LiDAR height above the terrain. With terrain the
+    sensor rides ``sensor_height`` above ``h(x, y)``; without it the sensor
+    stays at the pose's own z.
+    """
+
+    def __init__(self, primitives: list[Sphere | Box | Terrain], sensor_height: float = 0.0) -> None:
         self.primitives = primitives
+        self.sensor_height = float(sensor_height)
+
+    @property
+    def terrain(self) -> Terrain | None:
+        for primitive in self.primitives:
+            if isinstance(primitive, Terrain):
+                return primitive
+        return None
+
+    def sensor_pose(self, pose: RoverPose) -> RoverPose:
+        """Place the sensor on the terrain surface plus ``sensor_height``."""
+        terrain = self.terrain
+        if terrain is None:
+            return pose
+        position = np.asarray(pose.position, dtype=np.float64).copy()
+        position[2] = float(terrain.height(position[0], position[1])) + self.sensor_height
+        return RoverPose(position=position, yaw=pose.yaw)
 
     def scan(self, pose: RoverPose, time_sec: float, model: LidarModel) -> np.ndarray:
-        """Return an ``(N, 3)`` cloud in the sensor frame. Misses are omitted."""
+        """Return an ``(N, 3)`` cloud in the sensor frame. Misses are omitted.
+
+        ``pose`` is the sensor pose; call :meth:`sensor_pose` first to place it on terrain.
+        """
         directions = _sensor_directions(model)
         world_directions = directions @ pose.rotation.T
         origin = np.asarray(pose.position, dtype=np.float64)
@@ -148,7 +248,9 @@ class Scene:
         for primitive in self.primitives:
             if not primitive.active(time_sec):
                 continue
-            if isinstance(primitive, Sphere):
+            if isinstance(primitive, Terrain):
+                times = primitive.intersect(origin, world_directions, model.max_range)
+            elif isinstance(primitive, Sphere):
                 times = _ray_sphere(origin, world_directions, primitive.center_at(time_sec), primitive.radius)
             else:
                 times = _ray_box(
@@ -170,28 +272,63 @@ class Scene:
         return (world_points - origin) @ pose.rotation
 
 
-def demo_scene() -> Scene:
-    """Walls, scattered rocks, a moving boulder, and an object that disappears."""
-    rocks = [
-        Sphere("rock_a", np.array([3.0, 1.2, 0.35]), 0.35),
-        Sphere("rock_b", np.array([3.6, -0.8, 0.25]), 0.25),
-        Sphere("rock_c", np.array([2.4, -1.4, 0.2]), 0.2),
-        Sphere("rock_d", np.array([4.2, 0.4, 0.45]), 0.4),
-        Sphere("rock_e", np.array([2.2, 0.6, 0.18]), 0.18),
+DEMO_PATH_LENGTH = 9.0
+"""Meters the demo rover drives along +x before stopping short of the far wall."""
+
+
+def demo_scene(sensor_height: float = 0.6) -> Scene:
+    """Cratered terrain, rocks, walls, a moving boulder, and objects that disappear and appear.
+
+    The rover drives along +x from the origin. Timed objects:
+    ``mover`` crosses the path, ``temporary`` vanishes at 12 s, and
+    ``arrival`` appears at 10 s.
+    """
+    terrain = Terrain(
+        "terrain",
+        mounds=[
+            Mound((2.5, -2.4), 0.35, 0.8),
+            Mound((5.5, 2.6), 0.45, 1.1),
+            Mound((8.5, -3.0), 0.4, 0.9),
+            Mound((4.0, 3.8), -0.35, 0.9),
+            Mound((7.0, -1.8), -0.3, 0.7),
+            Mound((10.5, 2.0), -0.4, 1.0),
+            Mound((1.0, 3.0), 0.25, 0.6),
+            Mound((11.5, -2.2), 0.3, 0.8),
+        ],
+    )
+
+    def on_ground(x: float, y: float, radius: float) -> np.ndarray:
+        return np.array([x, y, float(terrain.height(x, y)) + 0.6 * radius])
+
+    rock_layout = [
+        ("rock_a", 3.0, 1.2, 0.35),
+        ("rock_b", 3.6, -0.9, 0.25),
+        ("rock_c", 2.2, -1.4, 0.2),
+        ("rock_d", 4.6, 0.8, 0.45),
+        ("rock_e", 1.8, 0.7, 0.18),
+        ("rock_f", 6.2, -1.1, 0.3),
+        ("rock_g", 7.4, 1.4, 0.4),
+        ("rock_h", 8.8, -0.7, 0.22),
+        ("rock_i", 9.9, 1.1, 0.35),
+        ("rock_j", 11.2, -1.3, 0.5),
+        ("rock_k", 5.4, -2.6, 0.3),
+        ("rock_l", 0.6, -1.8, 0.28),
     ]
+    rocks = [Sphere(name, on_ground(x, y, radius), radius) for name, x, y, radius in rock_layout]
     structures = [
-        Box("front_wall", np.array([5.0, -2.0, 0.0]), np.array([5.25, 2.0, 2.0])),
-        Box("side_wall", np.array([1.0, 2.2, 0.0]), np.array([4.5, 2.45, 1.6])),
-        Sphere("mover", np.array([2.8, -1.6, 0.35]), 0.3, velocity=np.array([0.0, 0.35, 0.0])),
-        Sphere(
-            "temporary",
-            np.array([3.4, 1.8, 0.3]),
-            0.28,
-            active_start=0.0,
-            active_end=4.0,
+        Box("far_wall", np.array([13.5, -4.0, -0.5]), np.array([13.8, 4.0, 2.2])),
+        Box("side_wall", np.array([1.5, 4.4, -0.5]), np.array([9.5, 4.7, 1.6])),
+        Box("block", np.array([6.6, -3.9, -0.5]), np.array([7.6, -3.1, 1.1])),
+        Sphere("mover", on_ground(5.0, -3.2, 0.3), 0.3, velocity=np.array([0.0, 0.3, 0.0])),
+        Sphere("temporary", on_ground(3.4, 2.0, 0.3), 0.3, active_start=0.0, active_end=12.0),
+        Box(
+            "arrival",
+            np.array([8.0, -2.8, -0.5]),
+            np.array([8.6, -2.2, 0.9]),
+            active_start=10.0,
         ),
     ]
-    return Scene(rocks + structures)
+    return Scene([terrain] + rocks + structures, sensor_height=sensor_height)
 
 
 def _sensor_directions(model: LidarModel) -> np.ndarray:

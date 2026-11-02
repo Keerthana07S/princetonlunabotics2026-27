@@ -10,6 +10,7 @@ import time
 from dataclasses import dataclass, field
 
 import numpy as np
+from scipy.spatial.transform import Rotation
 
 from dynamic_map.voxel_map import MapConfig, VoxelMap
 from lidar_interface.geometry import transform_points
@@ -31,6 +32,7 @@ class SessionConfig:
     mode: str = "scan_to_scan"
     submap_radius: float = 8.0
     min_points: int = 30
+    motion_prediction: bool = True
 
 
 @dataclass
@@ -45,6 +47,7 @@ class ScanResult:
     inliers: int
     timings: dict[str, float]
     correspondence_lines: np.ndarray
+    overlap: float = 0.0
 
 
 class MappingSession:
@@ -58,7 +61,23 @@ class MappingSession:
         self.transform = np.eye(4)
         self._previous_points: np.ndarray | None = None
         self._previous_features: FeatureSet | None = None
+        self._previous_stamp = 0.0
+        self._velocity: tuple[np.ndarray, float] | None = None
         self.initialized = False
+
+    def predicted_motion(self, stamp: float) -> np.ndarray:
+        """Constant-velocity guess of ``T_prev_curr`` from the last accepted step."""
+        if not self.config.motion_prediction or self._velocity is None:
+            return np.eye(4)
+        relative, step_dt = self._velocity
+        dt = float(stamp) - self._previous_stamp
+        if step_dt <= 1e-6 or dt <= 0.0:
+            return np.eye(4)
+        scale = min(dt / step_dt, 30.0)
+        predicted = np.eye(4)
+        predicted[:3, :3] = Rotation.from_rotvec(Rotation.from_matrix(relative[:3, :3]).as_rotvec() * scale).as_matrix()
+        predicted[:3, 3] = relative[:3, 3] * scale
+        return predicted
 
     def process_scan(self, points: np.ndarray, stamp: float) -> ScanResult:
         """Register ``points`` in the sensor frame and integrate them when accepted."""
@@ -78,6 +97,7 @@ class MappingSession:
             self._integrate(xyz, np.eye(4), stamp)
             self._previous_points = xyz
             self._previous_features = features
+            self._previous_stamp = float(stamp)
             self.initialized = True
             timings["total_s"] = time.perf_counter() - started
             return ScanResult(
@@ -95,7 +115,9 @@ class MappingSession:
         if target_features is None or target_features.count < self.config.clipper.min_inliers:
             return self._reject("no_target_features", started, timings)
         pair_started = time.perf_counter()
-        candidates = candidate_correspondences(features, target_features, self.config.features)
+        motion = self.predicted_motion(stamp)
+        predicted = self.transform @ motion if target_in_map else motion
+        candidates = candidate_correspondences(features, target_features, self.config.features, predicted)
         timings["candidates_s"] = time.perf_counter() - pair_started
         clipper_started = time.perf_counter()
         association = associate(features.xyz, target_features.xyz, candidates, self.config.clipper)
@@ -114,7 +136,11 @@ class MappingSession:
         )
         timings["registration_s"] = time.perf_counter() - register_started
         if not registration.accepted:
-            return self._reject(registration.reason, started, timings, association, registration.rmse, registration.fitness)
+            rejected = self._reject(
+                registration.reason, started, timings, association, registration.rmse, registration.fitness
+            )
+            rejected.overlap = registration.overlap
+            return rejected
 
         if self.config.mode == "scan_to_scan":
             updated = self.transform @ registration.transform
@@ -124,9 +150,11 @@ class MappingSession:
         self._integrate(xyz, updated, stamp)
         timings["map_s"] = time.perf_counter() - map_started
         lines = self._lines(features.xyz, target_features.xyz, association, updated, target_in_map)
+        self._velocity = (np.linalg.inv(self.transform) @ updated, float(stamp) - self._previous_stamp)
         self.transform = updated
         self._previous_points = xyz
         self._previous_features = features
+        self._previous_stamp = float(stamp)
         timings["total_s"] = time.perf_counter() - started
         return ScanResult(
             accepted=True,
@@ -137,6 +165,7 @@ class MappingSession:
             inliers=registration.inlier_count,
             timings=timings,
             correspondence_lines=lines,
+            overlap=registration.overlap,
         )
 
     def _target(self, stamp: float) -> tuple[np.ndarray, FeatureSet | None, bool]:

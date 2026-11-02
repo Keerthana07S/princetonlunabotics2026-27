@@ -14,7 +14,14 @@ from lidar_interface.filters import SensorLimits, apply_limits
 from lidar_interface.geometry import quaternion_xyzw
 from lidar_interface.metrics import MetricsLogger
 from lidar_interface.pointcloud import stamp_from_seconds, to_pointcloud2
-from lidar_interface.synthetic_scene import LidarModel, RoverPose, circle_pose, demo_scene, line_pose
+from lidar_interface.synthetic_scene import (
+    DEMO_PATH_LENGTH,
+    LidarModel,
+    RoverPose,
+    circle_pose,
+    demo_scene,
+    line_pose,
+)
 from lidar_interface.types import PointCloud
 
 
@@ -28,17 +35,18 @@ class SyntheticLidarNode(Node):
         self.declare_parameter("frame_id", "lidar_link")
         self.declare_parameter("rate_hz", 2.0)
         self.declare_parameter("path", "line")
-        self.declare_parameter("speed_m_s", 0.25)
+        self.declare_parameter("speed_m_s", 0.3)
         self.declare_parameter("motion_delay_sec", 0.0)
+        self.declare_parameter("path_length_m", DEMO_PATH_LENGTH)
         self.declare_parameter("yaw_rate_rad_s", 0.15)
         self.declare_parameter("min_range", 0.2)
         self.declare_parameter("max_range", 20.0)
         self.declare_parameter("horizontal_fov_deg", 360.0)
         self.declare_parameter("horizontal_center_deg", 0.0)
-        self.declare_parameter("vertical_min_deg", -5.0)
-        self.declare_parameter("vertical_max_deg", 30.0)
-        self.declare_parameter("azimuth_bins", 120)
-        self.declare_parameter("elevation_bins", 12)
+        self.declare_parameter("vertical_min_deg", -25.0)
+        self.declare_parameter("vertical_max_deg", 15.0)
+        self.declare_parameter("azimuth_bins", 240)
+        self.declare_parameter("elevation_bins", 16)
         self.declare_parameter("range_noise_std", 0.01)
         self.declare_parameter("seed", 7)
         self.declare_parameter("drop_every_n", 0)
@@ -94,7 +102,7 @@ class SyntheticLidarNode(Node):
             return circle_pose(time_sec, speed, float(self.get_parameter("yaw_rate_rad_s").value))
         if path != "line":
             self.get_logger().warning(f"Unknown path '{path}'; using a straight line")
-        return line_pose(time_sec, speed)
+        return line_pose(time_sec, speed, float(self.get_parameter("path_length_m").value))
 
     def _tick(self) -> None:
         self._index += 1
@@ -107,9 +115,9 @@ class SyntheticLidarNode(Node):
         delay = float(self.get_parameter("motion_delay_sec").value)
         time_sec = max(0.0, elapsed - delay)
         try:
-            pose = self._pose(time_sec)
+            pose = self._scene.sensor_pose(self._pose(time_sec))
             points = self._scene.scan(pose, time_sec, self._model())
-            cloud = PointCloud(xyz=points, stamp_sec=elapsed, frame_id=self._frame_id)
+            cloud = PointCloud(xyz=points, stamp_sec=started.nanoseconds * 1e-9, frame_id=self._frame_id)
             cloud, _stats = apply_limits(cloud, self._limits())
         except Exception as exc:
             self.get_logger().error(f"Synthetic scan failed: {exc}")
@@ -125,6 +133,12 @@ class SyntheticLidarNode(Node):
             duration_s=elapsed,
             points=cloud.count,
             scan_index=self._index,
+            stamp=cloud.stamp_sec,
+            scene_time=time_sec,
+            truth_x=float(pose.position[0]),
+            truth_y=float(pose.position[1]),
+            truth_z=float(pose.position[2]),
+            truth_yaw=float(pose.yaw),
         )
 
     def _publish_truth(self, pose: RoverPose, stamp_sec: float) -> None:

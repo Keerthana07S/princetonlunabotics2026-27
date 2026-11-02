@@ -1,9 +1,15 @@
 # TUNE FOR REAL SENSOR: keypoint voxel and FPFH radii.
+# Candidates are putative pairs only; CLIPPER selects the consistent subset.
+# With gate_radius > 0, each keypoint is compared only against target keypoints
+# within gate_radius of where the constant-velocity prediction puts it, and
+# the candidates_per_keypoint most similar FPFH descriptors are kept.
 mapping:
   ros__parameters:
     keypoint_voxel: 0.35
     normal_radius: 0.8
     fpfh_radius: 1.2
-    max_correspondences: 100
+    max_correspondences: 400
     max_descriptor_distance: 2.0
     mutual_correspondences: false
+    candidates_per_keypoint: 3
+    gate_radius: 1.0

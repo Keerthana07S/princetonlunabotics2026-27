@@ -9,15 +9,17 @@ synthetic_lidar:
     speed_m_s: 0.3
     # Hold the rover still until the other nodes have finished starting.
     motion_delay_sec: 8.0
+    # The demo scene's far wall is at x=13.5; stop well short of it.
+    path_length_m: 9.0
     yaw_rate_rad_s: 0.15
     min_range: 0.2
     max_range: 20.0
     horizontal_fov_deg: 360.0
     horizontal_center_deg: 0.0
-    vertical_min_deg: -5.0
-    vertical_max_deg: 30.0
-    azimuth_bins: 90
-    elevation_bins: 8
+    vertical_min_deg: -25.0
+    vertical_max_deg: 15.0
+    azimuth_bins: 240
+    elevation_bins: 16
     range_noise_std: 0.01
     seed: 3
     drop_every_n: 0

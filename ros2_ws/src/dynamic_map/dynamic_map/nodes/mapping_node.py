@@ -16,15 +16,12 @@ from sensor_msgs.msg import PointCloud2
 from tf2_ros import TransformBroadcaster
 from visualization_msgs.msg import Marker
 
+from dynamic_map.params import DEFAULTS, session_config
 from dynamic_map.session import MappingSession, SessionConfig
-from dynamic_map.voxel_map import MapConfig
 from lidar_interface.geometry import invert_transform, make_transform, quaternion_xyzw, yaw_rotation
 from lidar_interface.metrics import MetricsLogger
 from lidar_interface.pointcloud import from_pointcloud2, stamp_from_seconds, to_pointcloud2
 from lidar_interface.types import PointCloud
-from pointcloud_processing.clipper_association import ClipperConfig
-from pointcloud_processing.features import FeatureConfig
-from pointcloud_processing.registration import RegistrationConfig
 
 
 class MappingNode(Node):
@@ -63,98 +60,11 @@ class MappingNode(Node):
         self.get_logger().info(f"Mapping {topic} in {mode} mode")
 
     def _declare_parameters(self) -> None:
-        defaults = {
-            "input_topic": "/mapping/processed_scan",
-            "registered_topic": "/mapping/registered_scan",
-            "map_topic": "/mapping/global_map",
-            "pose_topic": "/mapping/rover_pose",
-            "status_topic": "/mapping/registration_status",
-            "correspondence_topic": "/mapping/correspondences",
-            "map_frame": "map",
-            "base_frame": "base_link",
-            "map_reliable": True,
-            "registration_mode": "scan_to_scan",
-            "submap_radius": 8.0,
-            "min_points": 30,
-            "lidar_x": 0.0,
-            "lidar_y": 0.0,
-            "lidar_z": 0.0,
-            "lidar_yaw": 0.0,
-            "keypoint_voxel": 0.35,
-            "normal_radius": 0.8,
-            "fpfh_radius": 1.2,
-            "max_correspondences": 100,
-            "max_descriptor_distance": 2.0,
-            "mutual_correspondences": False,
-            "clipper_sigma": 0.05,
-            "clipper_epsilon": 0.25,
-            "clipper_mindist": 0.05,
-            "clipper_min_inliers": 6,
-            "max_rmse": 0.12,
-            "min_fitness": 0.5,
-            "inlier_threshold": 0.4,
-            "icp_enabled": True,
-            "icp_distance": 0.5,
-            "icp_iterations": 30,
-            "voxel_resolution": 0.2,
-            "observation_weight": 0.35,
-            "decay_lambda": 0.05,
-            "max_confidence": 2.0,
-            "min_confidence": 0.15,
-            "max_voxels": 200000,
-            "min_static_observations": 4,
-            "motion_threshold": 0.15,
-            "free_weight": 0.3,
-            "free_hits_to_clear": 2,
-            "metrics_path": "/workspace/logs/metrics.jsonl",
-        }
-        for name, value in defaults.items():
+        for name, value in DEFAULTS.items():
             self.declare_parameter(name, value)
 
     def _session_config(self) -> SessionConfig:
-        def number(name: str) -> float:
-            return float(self.get_parameter(name).value)
-
-        return SessionConfig(
-            features=FeatureConfig(
-                keypoint_voxel=number("keypoint_voxel"),
-                normal_radius=number("normal_radius"),
-                fpfh_radius=number("fpfh_radius"),
-                max_correspondences=int(self.get_parameter("max_correspondences").value),
-                max_descriptor_distance=number("max_descriptor_distance"),
-                mutual=bool(self.get_parameter("mutual_correspondences").value),
-            ),
-            clipper=ClipperConfig(
-                sigma=number("clipper_sigma"),
-                epsilon=number("clipper_epsilon"),
-                mindist=number("clipper_mindist"),
-                min_inliers=int(self.get_parameter("clipper_min_inliers").value),
-            ),
-            registration=RegistrationConfig(
-                max_rmse=number("max_rmse"),
-                min_fitness=number("min_fitness"),
-                inlier_threshold=number("inlier_threshold"),
-                min_points=int(self.get_parameter("clipper_min_inliers").value),
-                icp_enabled=bool(self.get_parameter("icp_enabled").value),
-                icp_distance=number("icp_distance"),
-                icp_iterations=int(self.get_parameter("icp_iterations").value),
-            ),
-            voxel=MapConfig(
-                resolution=number("voxel_resolution"),
-                observation_weight=number("observation_weight"),
-                decay_lambda=number("decay_lambda"),
-                max_confidence=number("max_confidence"),
-                min_confidence=number("min_confidence"),
-                max_voxels=int(self.get_parameter("max_voxels").value),
-                min_static_observations=int(self.get_parameter("min_static_observations").value),
-                motion_threshold=number("motion_threshold"),
-                free_weight=number("free_weight"),
-                free_hits_to_clear=int(self.get_parameter("free_hits_to_clear").value),
-            ),
-            mode=str(self.get_parameter("registration_mode").value),
-            submap_radius=number("submap_radius"),
-            min_points=int(self.get_parameter("min_points").value),
-        )
+        return session_config({name: self.get_parameter(name).value for name in DEFAULTS})
 
     def _extrinsic(self) -> np.ndarray:
         translation = np.array(
@@ -184,6 +94,8 @@ class MappingNode(Node):
             self._metrics.record(
                 "registration_rejected",
                 duration_s=time.perf_counter() - started,
+                reason=result.reason,
+                stamp=cloud.stamp_sec,
                 **{key: value for key, value in result.timings.items()},
             )
             self.get_logger().warning(f"Kept the previous map ({result.reason})")
@@ -200,6 +112,7 @@ class MappingNode(Node):
             frame_id=str(self.get_parameter("map_frame").value),
             intensity=exported.confidence,
             label=exported.dynamic.astype(np.float64),
+            extras={"age": np.maximum(cloud.stamp_sec - exported.last_observed, 0.0)},
         )
         self._global.publish(to_pointcloud2(global_cloud))
         self._lines.publish(self._marker(result.correspondence_lines, cloud.stamp_sec))
@@ -207,6 +120,11 @@ class MappingNode(Node):
         self._metrics.record(
             "mapping",
             duration_s=time.perf_counter() - started,
+            latency_s=self.get_clock().now().nanoseconds * 1e-9 - cloud.stamp_sec,
+            stamp=cloud.stamp_sec,
+            pose_x=float(base[0, 3]),
+            pose_y=float(base[1, 3]),
+            pose_z=float(base[2, 3]),
             features_s=float(result.timings.get("features_s", 0.0)),
             clipper_s=float(result.timings.get("clipper_s", 0.0)),
             registration_s=float(result.timings.get("registration_s", 0.0)),

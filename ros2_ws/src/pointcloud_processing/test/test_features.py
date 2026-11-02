@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-from pointcloud_processing.features import FeatureConfig, candidate_correspondences, extract_features
+from pointcloud_processing.features import FeatureConfig, FeatureSet, candidate_correspondences, extract_features
 
 
 def test_features_and_candidates_exist_for_a_transformed_copy() -> None:
@@ -29,3 +29,21 @@ def test_features_and_candidates_exist_for_a_transformed_copy() -> None:
     pairs = candidate_correspondences(source_features, target_features, config)
     assert pairs.shape[1] == 2
     assert pairs.shape[0] >= 1
+
+
+def test_gated_candidates_stay_near_the_predicted_position() -> None:
+    rng = np.random.default_rng(6)
+    source = FeatureSet(xyz=rng.uniform(-3.0, 3.0, size=(30, 3)), descriptors=rng.uniform(size=(30, 33)))
+    motion = np.eye(4)
+    motion[:3, 3] = [0.4, 0.0, 0.0]
+    target_xyz = source.xyz + motion[:3, 3]
+    target = FeatureSet(xyz=target_xyz, descriptors=source.descriptors + rng.normal(0.0, 0.01, size=(30, 33)))
+    config = FeatureConfig(max_correspondences=200, max_descriptor_distance=10.0, candidates_per_keypoint=3, gate_radius=0.5)
+
+    pairs = candidate_correspondences(source, target, config, predicted=motion)
+
+    assert pairs.shape[0] >= 30
+    moved = source.xyz[pairs[:, 0]] + motion[:3, 3]
+    assert np.all(np.linalg.norm(moved - target.xyz[pairs[:, 1]], axis=1) <= 0.5)
+    assert {(index, index) for index in range(30)} <= {(int(a), int(b)) for a, b in pairs}
+    assert np.max(np.bincount(pairs[:, 0])) <= 3

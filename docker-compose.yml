@@ -18,6 +18,9 @@ services:
       ROS_LOCALHOST_ONLY: "1"
       LUNAR_CONFIG_DIR: /workspace/config
       PYTHONUNBUFFERED: "1"
+      # Open3D's OpenMP pool defaults to every core; on a 22-thread laptop that
+      # made ICP ~5x slower than 4 threads. The Orin Nano has 6 cores.
+      OMP_NUM_THREADS: "4"
     volumes:
       - ./:/workspace
 
@@ -35,6 +38,7 @@ services:
       ROS_LOCALHOST_ONLY: "1"
       LUNAR_CONFIG_DIR: /workspace/config
       PYTHONUNBUFFERED: "1"
+      OMP_NUM_THREADS: "4"
     volumes:
       - ./:/workspace
     command:

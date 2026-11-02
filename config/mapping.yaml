@@ -21,4 +21,10 @@ mapping:
     motion_threshold: 0.15
     free_weight: 0.3
     free_hits_to_clear: 2
+    # A stored voxel gets free-space evidence when every populated range-image
+    # bin around its direction measured beyond it by free_margin + resolution.
+    # Bins must be at least as wide as the sensor's beam spacing.
+    free_margin: 0.3
+    free_azimuth_deg: 2.0
+    free_elevation_deg: 3.0
     metrics_path: /workspace/logs/metrics.jsonl

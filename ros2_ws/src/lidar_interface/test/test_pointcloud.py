@@ -67,6 +67,20 @@ def test_roundtrip_preserves_xyz_stamp_and_frame() -> None:
     assert np.allclose(restored.label, original.label, atol=1e-5)
 
 
+def test_roundtrip_preserves_extra_fields() -> None:
+    original = PointCloud(
+        xyz=np.array([[1.0, 2.0, 3.0], [-0.5, 0.25, 4.0]]),
+        stamp_sec=1.0,
+        frame_id="map",
+        intensity=np.array([0.5, 1.5]),
+        extras={"age": np.array([0.0, 12.5])},
+    )
+    message = to_pointcloud2(original)
+    assert [field.name for field in message.fields] == ["x", "y", "z", "intensity", "age"]
+    restored = from_pointcloud2(message)
+    assert np.allclose(restored.extras["age"], [0.0, 12.5])
+
+
 def test_float64_layout_with_intensity() -> None:
     points = np.array([[0.0, 1.0, 2.0], [3.0, 4.0, 5.0]])
     restored = from_pointcloud2(_manual_cloud(points, PointField.FLOAT64, with_intensity=True))

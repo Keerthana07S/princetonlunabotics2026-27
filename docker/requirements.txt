@@ -4,3 +4,8 @@ PyYAML>=6,<7
 pytest>=7,<9
 open3d==0.18.0
 viser>=0.2.7,<1
+# LAC (.lac) log reader used by software/pointclouds/lac_to_ros2bag.py and the stereo tools.
+pandas>=1.5,<2.3
+pillow>=9
+toml>=0.10
+lunarloc @ git+https://github.com/mit-acl/lunarloc-data.git

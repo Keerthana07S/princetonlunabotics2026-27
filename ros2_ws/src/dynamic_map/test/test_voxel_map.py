@@ -80,10 +80,42 @@ def test_free_space_removes_stale_geometry_and_ignores_unknown_space() -> None:
     )
     voxel_map.integrate_points(np.array([[1.2, 0.1, 0.1]]), np.zeros(3), 0.0)
     assert len(voxel_map.voxels) == 1
-    voxel_map.integrate_points(np.array([[3.2, 0.1, 0.1]]), np.zeros(3), 1.0)
+    voxel_map.integrate_points(np.array([[3.6, 0.3, 0.3]]), np.zeros(3), 1.0)
     assert (1, 0, 0) not in voxel_map.voxels
     assert (3, 0, 0) in voxel_map.voxels
     assert len(voxel_map.voxels) == 1
+
+
+def test_free_space_ignores_voxels_beside_the_ray() -> None:
+    voxel_map = VoxelMap(_config(free_weight=0.6, free_hits_to_clear=1, min_static_observations=10))
+    voxel_map.integrate_points(np.array([[1.2, 0.9, 0.1]]), np.zeros(3), 0.0)
+    voxel_map.integrate_points(np.array([[3.6, 0.1, 0.1]]), np.zeros(3), 1.0)
+    assert (1, 0, 0) in voxel_map.voxels
+
+
+def test_grazing_ground_rays_do_not_erase_near_ground() -> None:
+    voxel_map = VoxelMap(
+        _config(
+            resolution=0.2,
+            free_weight=0.6,
+            free_hits_to_clear=1,
+            min_static_observations=10,
+            decay_lambda=0.0,
+            max_voxels=100_000,
+        )
+    )
+    sensor = np.array([0.0, 0.0, 0.6])
+    elevations = np.deg2rad(np.linspace(-25.0, -5.0, 9))
+    azimuths = np.deg2rad(np.linspace(-20.0, 20.0, 21))
+    elevation, azimuth = np.meshgrid(elevations, azimuths)
+    distance = 0.6 / np.tan(-elevation)
+    ground = np.stack(
+        [distance * np.cos(azimuth), distance * np.sin(azimuth), np.zeros_like(distance)], axis=-1
+    ).reshape(-1, 3)
+    voxel_map.integrate_points(ground, sensor, 0.0)
+    before = set(voxel_map.voxels)
+    voxel_map.integrate_points(ground + np.array([0.05, 0.0, 0.0]), sensor + np.array([0.05, 0.0, 0.0]), 1.0)
+    assert before <= set(voxel_map.voxels)
 
 
 def test_moving_points_stay_out_of_the_static_export() -> None:

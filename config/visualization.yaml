@@ -13,3 +13,8 @@ mapping_visualizer:
     max_points: 40000
     low_confidence: 0.4
     high_confidence: 1.5
+    # confidence or age; switchable live from the "Color by" dropdown.
+    color_mode: confidence
+    age_horizon_s: 20.0
+    ground_truth_topic: /sim/ground_truth_pose
+    ground_truth_relative: true

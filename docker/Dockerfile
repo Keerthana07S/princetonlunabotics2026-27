@@ -9,7 +9,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     ROS_LOCALHOST_ONLY=1 \
     ROS_DOMAIN_ID=42 \
     PYTHONUNBUFFERED=1 \
-    LUNAR_CONFIG_DIR=/workspace/config
+    LUNAR_CONFIG_DIR=/workspace/config \
+    OMP_NUM_THREADS=4
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
@@ -25,10 +26,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         pkg-config \
         python3-colcon-common-extensions \
         python3-dev \
+        python3-opencv \
         python3-pip \
         python3-pytest \
         python3-setuptools \
         python3-wheel \
+        ros-humble-cv-bridge \
         ros-humble-diagnostic-msgs \
         ros-humble-launch-ros \
         ros-humble-nav-msgs \
@@ -41,7 +44,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY docker/requirements.txt /opt/lunar/requirements.txt
 RUN python3 -m pip install --no-cache-dir --upgrade pip \
     && python3 -m pip install --no-cache-dir -r /opt/lunar/requirements.txt \
-    && python3 -c "import numpy,scipy,open3d,viser,yaml,pytest; assert numpy.__version__.startswith('1.'), numpy.__version__"
+    && python3 -c "import numpy,scipy,open3d,viser,yaml,pytest,cv2,lunarloc; assert numpy.__version__.startswith('1.'), numpy.__version__"
 
 COPY docker/smoke_clipper.py /opt/lunar/smoke_clipper.py
 COPY docker/build_clipper.sh /opt/lunar/build_clipper.sh
