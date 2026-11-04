@@ -1,0 +1,53 @@
+# Stereo overrides for config/{features,clipper,registration,mapping}.yaml.
+# Tuned on the 60 front stereo pairs of software/pointclouds/example (2).lac.
+#
+# The camera mostly sees smooth ground 0.5-6 m ahead. On a plane every
+# pairwise distance survives a slide along the plane, so neither CLIPPER's
+# distance invariant nor point-to-plane ICP can pin forward motion well.
+# These settings are what made the shared pipeline usable on that log:
+# - random keypoints, because voxel-grid keypoints from two scans of flat
+#   ground fall in the same grid cells and "no motion" becomes a consistent set;
+# - FPFH only ranks pairs inside the motion gate; stereo FPFH distances between
+#   true matches are 5-80, so the LiDAR cap of 2.0 rejected everything;
+# - coast_on_reject, so one rejected pair does not strand every later scan
+#   against a stale reference.
+mapping:
+  ros__parameters:
+    keypoint_method: random
+    max_keypoints: 500
+    normal_radius: 0.3
+    fpfh_radius: 0.6
+    gate_radius: 0.5
+    candidates_per_keypoint: 5
+    max_correspondences: 1500
+    max_descriptor_distance: 1.0e9
+    mutual_correspondences: false
+
+    clipper_sigma: 0.03
+    clipper_epsilon: 0.1
+    clipper_mindist: 0.05
+    clipper_min_inliers: 8
+
+    registration_mode: scan_to_scan
+    motion_prediction: true
+    coast_on_reject: true
+    max_rmse: 0.03
+    min_fitness: 0.3
+    inlier_threshold: 0.15
+    overlap_distance: 0.1
+    min_overlap: 0.5
+    icp_point_to_plane: true
+    icp_normal_radius: 0.5
+    icp_distance: 0.2
+    icp_iterations: 50
+
+    # Left camera in base_link, from the LAC log's FrontLeft mount (no rotation).
+    lidar_x: 0.279846
+    lidar_y: 0.081096
+    lidar_z: 0.130731
+    lidar_yaw: 0.0
+
+    voxel_resolution: 0.1
+    # A forward camera does not revisit what is behind it, so voxels must
+    # outlive the drive: 0.35 -> 0.15 takes about 85 s at this rate.
+    decay_lambda: 0.01

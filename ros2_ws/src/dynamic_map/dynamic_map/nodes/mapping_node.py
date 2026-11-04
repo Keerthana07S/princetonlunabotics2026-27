@@ -16,9 +16,9 @@ from sensor_msgs.msg import PointCloud2
 from tf2_ros import TransformBroadcaster
 from visualization_msgs.msg import Marker
 
-from dynamic_map.params import DEFAULTS, session_config
+from dynamic_map.params import DEFAULTS, sensor_extrinsic, session_config
 from dynamic_map.session import MappingSession, SessionConfig
-from lidar_interface.geometry import invert_transform, make_transform, quaternion_xyzw, yaw_rotation
+from lidar_interface.geometry import invert_transform, quaternion_xyzw
 from lidar_interface.metrics import MetricsLogger
 from lidar_interface.pointcloud import from_pointcloud2, stamp_from_seconds, to_pointcloud2
 from lidar_interface.types import PointCloud
@@ -67,14 +67,9 @@ class MappingNode(Node):
         return session_config({name: self.get_parameter(name).value for name in DEFAULTS})
 
     def _extrinsic(self) -> np.ndarray:
-        translation = np.array(
-            [
-                float(self.get_parameter("lidar_x").value),
-                float(self.get_parameter("lidar_y").value),
-                float(self.get_parameter("lidar_z").value),
-            ]
+        return sensor_extrinsic(
+            {name: self.get_parameter(name).value for name in ("lidar_x", "lidar_y", "lidar_z", "lidar_yaw")}
         )
-        return make_transform(yaw_rotation(float(self.get_parameter("lidar_yaw").value)), translation)
 
     def _on_cloud(self, message: PointCloud2) -> None:
         started = time.perf_counter()
@@ -99,6 +94,10 @@ class MappingNode(Node):
                 **{key: value for key, value in result.timings.items()},
             )
             self.get_logger().warning(f"Kept the previous map ({result.reason})")
+            if self._session.initialized and bool(self.get_parameter("coast_on_reject").value):
+                coasted = result.transform @ invert_transform(self._extrinsic())
+                self._publish_pose(coasted, cloud.stamp_sec)
+                self._publish_tf(coasted, cloud.stamp_sec)
             return
         base = result.transform @ invert_transform(self._extrinsic())
         self._publish_pose(base, cloud.stamp_sec)

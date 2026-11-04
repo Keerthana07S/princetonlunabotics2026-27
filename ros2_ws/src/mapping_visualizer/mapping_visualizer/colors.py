@@ -25,6 +25,16 @@ def age_colors(age: np.ndarray, dynamic: np.ndarray, horizon: float) -> np.ndarr
     return colors
 
 
+def height_colors(z: np.ndarray) -> np.ndarray:
+    """Blend ``STALE`` (low) to ``FRESH`` (high) between the 2nd and 98th height percentiles."""
+    values = np.asarray(z, dtype=np.float64).reshape(-1)
+    if values.shape[0] == 0:
+        return np.zeros((0, 3), dtype=np.float64)
+    low, high = np.percentile(values, [2.0, 98.0])
+    weight = np.clip((values - low) / max(high - low, 1e-6), 0.0, 1.0)
+    return (1.0 - weight)[:, None] * STALE + weight[:, None] * FRESH
+
+
 def confidence_colors(
     confidence: np.ndarray,
     dynamic: np.ndarray,

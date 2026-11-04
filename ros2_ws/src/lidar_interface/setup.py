@@ -27,6 +27,8 @@ setup(
             "cloud_relay = lidar_interface.nodes.cloud_relay_node:main",
             "unitree_adapter = lidar_interface.nodes.unitree_adapter_node:main",
             "stereo_cloud = lidar_interface.nodes.stereo_cloud_node:main",
+            "lac_player = lidar_interface.nodes.lac_player_node:main",
+            "lac_to_bag = lidar_interface.lac_bag:main",
         ],
     },
 )

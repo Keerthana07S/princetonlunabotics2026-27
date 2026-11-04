@@ -1,15 +1,29 @@
-"""Launch the synthetic mapping pipeline and the Viser process."""
+"""Launch the synthetic mapping pipeline and a visualizer.
+
+``visualizer:=foxglove`` (default) starts foxglove_bridge on ws://localhost:8765;
+``visualizer:=viser`` starts the Viser page on http://localhost:8080.
+"""
 
 import os
 
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch_ros.actions import Node
+
+from mapping_visualizer.launching import DEFAULT_VISUALIZER, visualizer_nodes
+
+
+def _visualizer(context, config: str):
+    return visualizer_nodes(
+        context.launch_configurations["visualizer"], [os.path.join(config, "visualization.yaml")]
+    )
 
 
 def generate_launch_description() -> LaunchDescription:
     config = os.environ.get("LUNAR_CONFIG_DIR", "/workspace/config")
     return LaunchDescription(
         [
+            DeclareLaunchArgument("visualizer", default_value=DEFAULT_VISUALIZER, description="foxglove, viser, or none"),
             Node(
                 package="lidar_interface",
                 executable="synthetic_lidar",
@@ -36,12 +50,6 @@ def generate_launch_description() -> LaunchDescription:
                     os.path.join(config, "mapping.yaml"),
                 ],
             ),
-            Node(
-                package="mapping_visualizer",
-                executable="viser_visualizer",
-                name="mapping_visualizer",
-                output="screen",
-                parameters=[os.path.join(config, "visualization.yaml")],
-            ),
+            OpaqueFunction(function=_visualizer, args=[config]),
         ]
     )

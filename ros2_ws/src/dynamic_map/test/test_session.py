@@ -58,6 +58,48 @@ def test_rejected_scan_does_not_change_the_map() -> None:
     assert np.allclose(session.transform, np.eye(4))
 
 
+def test_coasting_rejection_advances_the_pose_but_not_the_map() -> None:
+    from dataclasses import replace
+
+    from lidar_interface.geometry import transform_points
+
+    session = MappingSession(replace(_config(), coast_on_reject=True))
+    cloud = _cloud()
+    motion = make_transform(yaw_rotation(0.0), np.array([0.3, 0.0, 0.0]))
+    assert session.process_scan(cloud, 0.0).accepted
+    assert session.process_scan(transform_points(cloud, invert_transform(motion)), 1.0).accepted
+    before = session.map.snapshot()
+    pose = session.transform.copy()
+
+    unrelated = np.random.default_rng(99).uniform(-4.0, 4.0, size=(90, 3))
+    rejected = session.process_scan(unrelated, 2.0)
+
+    assert not rejected.accepted
+    assert session.map.snapshot() == before
+    step = np.linalg.inv(pose) @ session.transform
+    assert np.allclose(step[:3, 3], motion[:3, 3], atol=0.15)
+    assert np.allclose(rejected.transform, session.transform)
+
+
+def test_without_coasting_a_rejection_keeps_the_pose() -> None:
+    session = MappingSession(_config())
+    assert session.process_scan(_cloud(), 0.0).accepted
+    unrelated = np.random.default_rng(99).uniform(-4.0, 4.0, size=(90, 3))
+    assert not session.process_scan(unrelated, 1.0).accepted
+    assert np.allclose(session.transform, np.eye(4))
+
+
+def test_first_scan_is_placed_at_the_sensor_extrinsic() -> None:
+    from dynamic_map.params import session_config
+
+    session = MappingSession(session_config({"lidar_x": 0.28, "lidar_y": 0.08, "lidar_z": 0.13}))
+    rng = np.random.default_rng(3)
+    cloud = rng.uniform(-3.0, 3.0, size=(400, 3))
+    result = session.process_scan(cloud, 0.0)
+    assert result.accepted
+    assert np.allclose(result.transform[:3, 3], [0.28, 0.08, 0.13])
+
+
 def test_scan_to_scan_recovers_a_known_motion() -> None:
     session = MappingSession(_config("scan_to_scan"))
     cloud = _cloud()

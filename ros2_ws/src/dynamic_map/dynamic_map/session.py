@@ -23,7 +23,13 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class SessionConfig:
-    """Registration mode is ``scan_to_scan`` or ``scan_to_submap``."""
+    """Registration mode is ``scan_to_scan`` or ``scan_to_submap``.
+
+    With ``coast_on_reject``, a scan that fails after its features were
+    extracted advances the pose by the constant-velocity prediction and becomes
+    the next reference scan. It is still not integrated into the map. Without
+    it, the pose and the reference stay where the last accepted scan left them.
+    """
 
     features: FeatureConfig = field(default_factory=FeatureConfig)
     clipper: ClipperConfig = field(default_factory=ClipperConfig)
@@ -33,6 +39,8 @@ class SessionConfig:
     submap_radius: float = 8.0
     min_points: int = 30
     motion_prediction: bool = True
+    coast_on_reject: bool = False
+    initial_transform: np.ndarray = field(default_factory=lambda: np.eye(4))
 
 
 @dataclass
@@ -58,7 +66,7 @@ class MappingSession:
         if self.config.mode not in ("scan_to_scan", "scan_to_submap"):
             raise ValueError("mode must be scan_to_scan or scan_to_submap")
         self.map = VoxelMap(self.config.voxel)
-        self.transform = np.eye(4)
+        self.transform = np.asarray(self.config.initial_transform, dtype=np.float64).copy()
         self._previous_points: np.ndarray | None = None
         self._previous_features: FeatureSet | None = None
         self._previous_stamp = 0.0
@@ -94,7 +102,7 @@ class MappingSession:
             return self._reject("too_few_features", started, timings)
 
         if not self.initialized:
-            self._integrate(xyz, np.eye(4), stamp)
+            self._integrate(xyz, self.transform, stamp)
             self._previous_points = xyz
             self._previous_features = features
             self._previous_stamp = float(stamp)
@@ -113,6 +121,7 @@ class MappingSession:
 
         target_points, target_features, target_in_map = self._target(stamp)
         if target_features is None or target_features.count < self.config.clipper.min_inliers:
+            self._coast(xyz, features, stamp)
             return self._reject("no_target_features", started, timings)
         pair_started = time.perf_counter()
         motion = self.predicted_motion(stamp)
@@ -123,6 +132,7 @@ class MappingSession:
         association = associate(features.xyz, target_features.xyz, candidates, self.config.clipper)
         timings["clipper_s"] = time.perf_counter() - clipper_started
         if association.diagnostics.get("reason") != "ok":
+            self._coast(xyz, features, stamp)
             return self._reject(str(association.diagnostics.get("reason")), started, timings, association)
 
         register_started = time.perf_counter()
@@ -136,6 +146,7 @@ class MappingSession:
         )
         timings["registration_s"] = time.perf_counter() - register_started
         if not registration.accepted:
+            self._coast(xyz, features, stamp)
             rejected = self._reject(
                 registration.reason, started, timings, association, registration.rmse, registration.fitness
             )
@@ -178,6 +189,14 @@ class MappingSession:
             return local, features, True
         assert self._previous_points is not None and self._previous_features is not None
         return self._previous_points, self._previous_features, False
+
+    def _coast(self, points: np.ndarray, features: FeatureSet, stamp: float) -> None:
+        if not self.config.coast_on_reject:
+            return
+        self.transform = self.transform @ self.predicted_motion(stamp)
+        self._previous_points = points
+        self._previous_features = features
+        self._previous_stamp = float(stamp)
 
     def _integrate(self, points: np.ndarray, transform: np.ndarray, stamp: float) -> None:
         mapped = transform_points(points, transform)

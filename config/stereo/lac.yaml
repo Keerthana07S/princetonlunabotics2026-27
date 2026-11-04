@@ -1,0 +1,38 @@
+# Stereo input: the LAC log player and the stereo-to-cloud node.
+# The stereo geometry is the documented LAC front pair (1.22 rad horizontal
+# field of view, 0.162 m baseline, no distortion). TUNE FOR REAL CAMERAS.
+lac_player:
+  ros__parameters:
+    lac_path: "/workspace/software/pointclouds/example (2).lac"
+    playback_rate: 1.0
+    start_delay_sec: 3.0
+    # The mapper must be listening before the first pair, because the map
+    # frame and the ground-truth origin are both that first pair.
+    wait_for_topics: [/camera/left/image_raw, /camera/right/image_raw, /lidar/points, /mapping/processed_scan, /ground_truth/pose]
+    start_at_first_image: true
+    left_topic: /camera/left/image_raw
+    right_topic: /camera/right/image_raw
+    ground_truth_topic: /ground_truth/pose
+    imu_topic: /imu/data
+    metrics_path: /workspace/logs/metrics_lac_player.jsonl
+
+stereo_cloud:
+  ros__parameters:
+    left_topic: /camera/left/image_raw
+    right_topic: /camera/right/image_raw
+    output_topic: /lidar/points
+    frame_id: lidar_link
+    max_stamp_skew_s: 0.02
+    horizontal_fov_rad: 1.22
+    baseline: 0.162
+    scale: 0.5
+    num_disparities: 96
+    block_size: 7
+    uniqueness_ratio: 10
+    # Depth error grows with depth squared; beyond ~6 m at half resolution it
+    # exceeds the 0.03 m registration RMSE gate.
+    min_depth: 0.5
+    max_depth: 6.0
+    min_intensity: 8
+    stride: 2
+    metrics_path: /workspace/logs/metrics_stereo_cloud.jsonl

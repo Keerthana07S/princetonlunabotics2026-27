@@ -17,7 +17,7 @@ from sensor_msgs.msg import Image, PointCloud2
 from visualization_msgs.msg import Marker
 
 from lidar_interface.pointcloud import from_pointcloud2
-from mapping_visualizer.colors import COLOR_MODES, SCAN, age_colors, confidence_colors
+from mapping_visualizer.colors import COLOR_MODES, SCAN, age_colors, confidence_colors, height_colors
 
 TRUTH_TRAIL = np.array([0.15, 0.45, 0.95])
 ESTIMATE_TRAIL = np.array([0.95, 0.2, 0.2])
@@ -46,6 +46,9 @@ class ViserNode(Node):
         self.declare_parameter("image_topic", "/camera/left/image_raw")
         self.declare_parameter("color_mode", "confidence")
         self.declare_parameter("age_horizon_s", 20.0)
+        # A raw sensor-frame cloud drawn on the rover at the sensor mount. Empty disables it.
+        self.declare_parameter("live_cloud_topic", "")
+        self.declare_parameter("live_cloud_mount", [0.0, 0.0, 0.0])
 
         host = str(self.get_parameter("host").value)
         port = int(self.get_parameter("port").value)
@@ -80,6 +83,9 @@ class ViserNode(Node):
         self._estimate_handle = None
         self._camera_image = None
         self._camera_count = 0
+        self._live = None
+        self._live_handle = None
+        self._live_count = 0
         self._aimed_clients: set[int] = set()
 
         reliable = bool(self.get_parameter("map_reliable").value)
@@ -114,6 +120,9 @@ class ViserNode(Node):
             self._on_lines,
             10,
         )
+        live_topic = str(self.get_parameter("live_cloud_topic").value)
+        if live_topic:
+            self.create_subscription(PointCloud2, live_topic, self._on_live, qos_profile_sensor_data)
         rate = float(self.get_parameter("update_hz").value)
         if rate <= 0.0:
             raise ValueError("update_hz must be positive")
@@ -137,6 +146,16 @@ class ViserNode(Node):
             return
         with self._lock:
             self._scan = cloud
+
+    def _on_live(self, message: PointCloud2) -> None:
+        try:
+            cloud = from_pointcloud2(message)
+        except Exception as exc:
+            self.get_logger().error(f"Live cloud rejected: {exc}")
+            return
+        with self._lock:
+            self._live = cloud
+            self._live_count += 1
 
     def _on_pose(self, message: Odometry) -> None:
         position, _wxyz = _pose_arrays(message)
@@ -189,6 +208,8 @@ class ViserNode(Node):
             estimate_trail = self._estimate_trail.copy()
             camera = None if self._camera_image is None else self._camera_image.copy()
             camera_count = self._camera_count
+            live = self._live
+            live_count = self._live_count
         point_size = float(self.get_parameter("point_size").value)
         cap = int(self.get_parameter("max_points").value)
         voxels = 0
@@ -215,6 +236,20 @@ class ViserNode(Node):
             self._scan_handle = _upsert_cloud(
                 self._server, self._scan_handle, "/scan", points, colors, point_size * 1.4
             )
+        if live is not None:
+            points, _confidence, _dynamic, _ages = _subsample(live.xyz, None, None, cap)
+            mount = np.asarray(self.get_parameter("live_cloud_mount").value, dtype=np.float64).reshape(3)
+            if self._live_handle is None:
+                self._live_handle = self._server.scene.add_point_cloud(
+                    "/rover/live_cloud",
+                    points=points,
+                    colors=height_colors(points[:, 2]),
+                    point_size=point_size,
+                    position=mount,
+                )
+            else:
+                self._live_handle.points = points
+                self._live_handle.colors = height_colors(points[:, 2])
         if pose is not None:
             position, wxyz = _pose_arrays(pose)
             self._rover.position = position
@@ -254,6 +289,7 @@ class ViserNode(Node):
         self._status.content = (
             f"Map voxels: {voxels}. Ground-truth poses: {trajectory.shape[0]}. "
             f"Estimated poses: {estimate_trail.shape[0]}. Left images: {camera_count}."
+            + (f" Live clouds: {live_count}." if live_count else "")
         )
 
 

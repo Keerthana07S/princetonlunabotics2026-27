@@ -8,9 +8,9 @@ Docker Desktop on Windows does not provide Linux host networking. Multicast betw
 docker compose exec dev bash
 ```
 
-Viser listens on `0.0.0.0:8080` inside the container. Compose publishes that port, so a browser on Windows opens `http://localhost:8080`.
+`foxglove_bridge` listens on `0.0.0.0:8765` inside the container, and the older Viser page (`visualizer:=viser`) on `0.0.0.0:8080`. Compose publishes both ports, so the Foxglove app on Windows connects to `ws://localhost:8765` and a browser opens `http://localhost:8080`. The bridge is a normal ROS node inside the container, so no DDS traffic has to cross into Windows. Version 3.x of the bridge uses the `foxglove.sdk.v1` websocket subprotocol; use a current Foxglove or Lichtblick release.
 
-Do not run the `dev` service and the `run` profile at the same time. Both publish port 8080.
+Do not run the `dev` service and the `run` profile at the same time. Both publish ports 8765 and 8080.
 
 The repository lives under OneDrive. The bind mount at `/workspace` works, and it is slower than a local Linux disk.
 

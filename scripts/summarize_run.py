@@ -30,6 +30,20 @@ def stats(values: list[float]) -> dict[str, float] | None:
     }
 
 
+def origin_rotation(row: dict) -> np.ndarray:
+    """World-from-origin rotation. Synthetic truth logs yaw only; LAC truth also logs roll and pitch."""
+    roll = float(row.get("truth_roll", 0.0))
+    pitch = float(row.get("truth_pitch", 0.0))
+    yaw = float(row["truth_yaw"])
+    cr, sr = math.cos(roll), math.sin(roll)
+    cp, sp = math.cos(pitch), math.sin(pitch)
+    cy, sy = math.cos(yaw), math.sin(yaw)
+    rz = np.array([[cy, -sy, 0.0], [sy, cy, 0.0], [0.0, 0.0, 1.0]])
+    ry = np.array([[cp, 0.0, sp], [0.0, 1.0, 0.0], [-sp, 0.0, cp]])
+    rx = np.array([[1.0, 0.0, 0.0], [0.0, cr, -sr], [0.0, sr, cr]])
+    return rz @ ry @ rx
+
+
 def rate(rows: list[dict]) -> float | None:
     if len(rows) < 2:
         return None
@@ -59,11 +73,13 @@ def main() -> None:
     for row in rows:
         by_stage.setdefault(row["stage"], []).append(row)
     scans = by_stage.get("synthetic_scan", [])
+    lac_frames = by_stage.get("lac_frame", [])
+    stereo = by_stage.get("stereo_cloud", [])
     pre = by_stage.get("preprocessing", [])
     mapped = by_stage.get("mapping", [])
     rejected = by_stage.get("registration_rejected", [])
 
-    truth = {round(float(row["stamp"]), 6): row for row in scans if "stamp" in row}
+    truth = {round(float(row["stamp"]), 6): row for row in scans + lac_frames if "stamp" in row}
     errors = []
     final = None
     origin = None
@@ -73,7 +89,6 @@ def main() -> None:
             continue
         if origin is None:
             origin = match
-        yaw = float(origin["truth_yaw"])
         offset = np.array(
             [
                 float(match["truth_x"]) - float(origin["truth_x"]),
@@ -81,8 +96,7 @@ def main() -> None:
                 float(match["truth_z"]) - float(origin["truth_z"]),
             ]
         )
-        cos, sin = math.cos(-yaw), math.sin(-yaw)
-        truth_map = np.array([cos * offset[0] - sin * offset[1], sin * offset[0] + cos * offset[1], offset[2]])
+        truth_map = origin_rotation(origin).T @ offset
         estimate = np.array([float(row["pose_x"]), float(row["pose_y"]), float(row["pose_z"])])
         errors.append(float(np.linalg.norm(estimate - truth_map)))
         final = {"estimate": estimate.round(4).tolist(), "truth": truth_map.round(4).tolist()}
@@ -93,6 +107,10 @@ def main() -> None:
         "window_s": (max(float(r["wall_time"]) for r in rows) - min(float(r["wall_time"]) for r in rows)) if rows else 0,
         "synthetic_scans": len(scans),
         "synthetic_scans_while_driving": len(moving),
+        "lac_stereo_pairs": len(lac_frames),
+        "stereo_clouds": len(stereo),
+        "stereo_cloud_s": stats([float(row["duration_s"]) for row in stereo]),
+        "stereo_points": stats([float(row["points"]) for row in stereo]),
         "preprocessed_scans": len(pre),
         "mapping_accepted": len(mapped),
         "mapping_rejected": len(rejected),

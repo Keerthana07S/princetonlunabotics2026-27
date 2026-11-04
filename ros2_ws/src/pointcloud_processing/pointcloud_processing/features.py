@@ -16,8 +16,18 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class FeatureConfig:
-    """Keypoint and descriptor settings. Radii are in meters and need sensor tuning."""
+    """Keypoint and descriptor settings. Radii are in meters and need sensor tuning.
 
+    ``keypoint_method`` is ``voxel`` or ``random``. ``voxel`` computes FPFH on
+    the voxel-downsampled keypoints themselves. ``random`` computes normals and
+    FPFH on the whole input cloud and keeps ``max_keypoints`` rows drawn with a
+    fixed seed. Voxel centroids from two scans of smooth ground land in the same
+    grid cells, which makes "no motion" a consistent set of pairs; random
+    keypoints do not share that grid.
+    """
+
+    keypoint_method: str = "voxel"
+    max_keypoints: int = 400
     keypoint_voxel: float = 0.3
     normal_radius: float = 0.6
     normal_max_nn: int = 30
@@ -47,13 +57,37 @@ def _empty() -> FeatureSet:
 
 
 def extract_features(points: np.ndarray, config: FeatureConfig, sensor_origin: np.ndarray | None = None) -> FeatureSet:
-    """Downsample to keypoints and compute FPFH. Fewer than 8 points returns an empty set."""
+    """Select keypoints and compute FPFH. Fewer than 8 points returns an empty set."""
+    if config.keypoint_method == "random":
+        return _random_features(points, config, sensor_origin)
+    if config.keypoint_method != "voxel":
+        raise ValueError("keypoint_method must be voxel or random")
     keypoints = voxel_downsample(points, config.keypoint_voxel)
     if keypoints.shape[0] < 8:
         logger.info("Not enough points (%d) for FPFH", keypoints.shape[0])
         return _empty()
+    descriptors = _fpfh(keypoints, config, sensor_origin)
+    if descriptors is None:
+        return _empty()
+    return FeatureSet(xyz=keypoints, descriptors=descriptors)
+
+
+def _random_features(points: np.ndarray, config: FeatureConfig, sensor_origin: np.ndarray | None) -> FeatureSet:
+    xyz = np.asarray(points, dtype=np.float64).reshape(-1, 3)
+    if xyz.shape[0] < 8:
+        logger.info("Not enough points (%d) for FPFH", xyz.shape[0])
+        return _empty()
+    descriptors = _fpfh(xyz, config, sensor_origin)
+    if descriptors is None:
+        return _empty()
+    count = min(xyz.shape[0], max(8, int(config.max_keypoints)))
+    rows = np.sort(np.random.default_rng(0).choice(xyz.shape[0], size=count, replace=False))
+    return FeatureSet(xyz=xyz[rows], descriptors=descriptors[rows])
+
+
+def _fpfh(points: np.ndarray, config: FeatureConfig, sensor_origin: np.ndarray | None) -> np.ndarray | None:
     cloud = o3d.geometry.PointCloud()
-    cloud.points = o3d.utility.Vector3dVector(keypoints)
+    cloud.points = o3d.utility.Vector3dVector(points)
     cloud.estimate_normals(
         o3d.geometry.KDTreeSearchParamHybrid(radius=float(config.normal_radius), max_nn=int(config.normal_max_nn))
     )
@@ -65,12 +99,12 @@ def extract_features(points: np.ndarray, config: FeatureConfig, sensor_origin: n
     )
     if fpfh is None:
         logger.warning("FPFH returned no descriptors")
-        return _empty()
+        return None
     descriptors = np.asarray(fpfh.data, dtype=np.float64).T
-    if descriptors.shape != (keypoints.shape[0], 33):
+    if descriptors.shape != (points.shape[0], 33):
         logger.warning("Unexpected FPFH shape %s", descriptors.shape)
-        return _empty()
-    return FeatureSet(xyz=keypoints, descriptors=descriptors)
+        return None
+    return descriptors
 
 
 def candidate_correspondences(

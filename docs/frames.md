@@ -20,6 +20,8 @@ The rover pose on `/mapping/rover_pose` is `T_map_base`. With the default extrin
 T_map_base = T_map_lidar * inverse(T_base_lidar)
 ```
 
-Axes follow REP 103: x forward, y left, z up. Yaw is about +z. There is no GPS frame. The map frame is the LiDAR frame of the first accepted scan. This odometry drifts. Loop closure is not implemented.
+Axes follow REP 103: x forward, y left, z up. Yaw is about +z. There is no GPS frame. The map frame is `base_link` at the first accepted scan, so that scan is integrated at `T_map_lidar = T_base_lidar` (the `lidar_x/y/z/yaw` extrinsic). With the default zero extrinsic this is also the first scan's LiDAR frame. This odometry drifts. Loop closure is not implemented.
+
+For stereo the "LiDAR" frame is the left camera's body frame (x forward along the optical axis, y left, z up), and the extrinsic is the camera mount. The LAC front-left camera is at (0.280, 0.081, 0.131) m in the rover frame with no rotation, as logged in the `.lac` file.
 
 `/sim/ground_truth_pose` is published by the synthetic driver only. The mapping node does not subscribe to it.

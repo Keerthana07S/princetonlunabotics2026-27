@@ -1,0 +1,8 @@
+# Stereo overrides for config/preprocessing.yaml. Stereo clouds are dense and
+# short range, so the voxel is finer than for LiDAR.
+preprocessing:
+  ros__parameters:
+    min_range: 0.5
+    max_range: 6.0
+    voxel_size: 0.05
+    statistical_neighbors: 12

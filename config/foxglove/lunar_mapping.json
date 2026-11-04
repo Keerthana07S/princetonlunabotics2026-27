@@ -1,0 +1,145 @@
+{
+  "configById": {
+    "3D!lunarmap": {
+      "cameraState": {
+        "perspective": true,
+        "distance": 28,
+        "phi": 55,
+        "thetaOffset": 45,
+        "targetOffset": [0, 0, 0],
+        "target": [0, 0, 0],
+        "targetOrientation": [0, 0, 0, 1],
+        "fovy": 45,
+        "near": 0.1,
+        "far": 5000
+      },
+      "followMode": "follow-position",
+      "followTf": "base_link",
+      "scene": { "enableStats": false, "backgroundColor": "#15171c" },
+      "transforms": { "labelSize": 0.15, "axisScale": 0.5 },
+      "topics": {
+        "/viz/map": {
+          "visible": true,
+          "pointSize": 3,
+          "pointShape": "square",
+          "colorMode": "rgb",
+          "colorField": "rgb",
+          "decayTime": 0
+        },
+        "/mapping/global_map": { "visible": false },
+        "/mapping/registered_scan": {
+          "visible": true,
+          "pointSize": 2,
+          "pointShape": "circle",
+          "colorMode": "flat",
+          "flatColor": "#1ad940ff",
+          "decayTime": 0
+        },
+        "/lidar/points": {
+          "visible": true,
+          "pointSize": 2,
+          "pointShape": "circle",
+          "colorMode": "colormap",
+          "colorField": "z",
+          "colorMap": "turbo",
+          "decayTime": 0
+        },
+        "/mapping/processed_scan": { "visible": false },
+        "/viz/ground_truth_path": {
+          "visible": true,
+          "type": "line",
+          "lineWidth": 0.06,
+          "gradient": ["#2673f2ff", "#2673f2ff"]
+        },
+        "/viz/estimated_path": {
+          "visible": true,
+          "type": "line",
+          "lineWidth": 0.06,
+          "gradient": ["#f23333ff", "#f23333ff"]
+        },
+        "/viz/ground_truth_pose": { "visible": true, "type": "axis", "axisScale": 0.6 },
+        "/mapping/correspondences": { "visible": true },
+        "/sim/ground_truth_pose": { "visible": false },
+        "/ground_truth/pose": { "visible": false }
+      },
+      "layers": {
+        "grid": {
+          "visible": true,
+          "frameLocked": true,
+          "label": "Grid",
+          "instanceId": "grid",
+          "layerId": "foxglove.Grid",
+          "frameId": "map",
+          "size": 60,
+          "divisions": 60,
+          "lineWidth": 1,
+          "color": "#248eff30",
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0]
+        }
+      },
+      "publish": {
+        "type": "point",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      },
+      "imageMode": {}
+    },
+    "Image!leftcam": {
+      "cameraState": {
+        "distance": 20,
+        "perspective": true,
+        "phi": 60,
+        "target": [0, 0, 0],
+        "targetOffset": [0, 0, 0],
+        "targetOrientation": [0, 0, 0, 1],
+        "thetaOffset": 45,
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "scene": {},
+      "transforms": {},
+      "topics": {},
+      "layers": {},
+      "publish": {
+        "type": "point",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      },
+      "imageMode": { "imageTopic": "/camera/left/image_raw" },
+      "cameraTopic": "/camera/left/image_raw"
+    },
+    "RawMessages!regstatus": {
+      "topicPath": "/mapping/registration_status",
+      "diffEnabled": false,
+      "diffMethod": "custom",
+      "diffTopicPath": "",
+      "showFullMessageForDiff": false,
+      "autoExpandMode": "auto"
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "playbackConfig": { "speed": 1 },
+  "layout": {
+    "direction": "row",
+    "first": "3D!lunarmap",
+    "second": {
+      "direction": "column",
+      "first": "Image!leftcam",
+      "second": "RawMessages!regstatus",
+      "splitPercentage": 55
+    },
+    "splitPercentage": 68
+  }
+}

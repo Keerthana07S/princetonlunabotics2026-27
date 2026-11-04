@@ -16,6 +16,7 @@
   <depend>tf2_ros</depend>
   <exec_depend>lidar_interface</exec_depend>
   <exec_depend>pointcloud_processing</exec_depend>
+  <exec_depend>mapping_visualizer</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <test_depend>python3-pytest</test_depend>
 

@@ -5,9 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Mapping
 
+import numpy as np
 import yaml
 
 from dynamic_map.session import SessionConfig
+from lidar_interface.geometry import make_transform, yaw_rotation
 from dynamic_map.voxel_map import MapConfig
 from pointcloud_processing.clipper_association import ClipperConfig
 from pointcloud_processing.features import FeatureConfig
@@ -27,10 +29,13 @@ DEFAULTS: dict[str, Any] = {
     "submap_radius": 8.0,
     "min_points": 30,
     "motion_prediction": True,
+    "coast_on_reject": False,
     "lidar_x": 0.0,
     "lidar_y": 0.0,
     "lidar_z": 0.0,
     "lidar_yaw": 0.0,
+    "keypoint_method": "voxel",
+    "max_keypoints": 400,
     "keypoint_voxel": 0.35,
     "normal_radius": 0.8,
     "fpfh_radius": 1.2,
@@ -82,6 +87,8 @@ def session_config(values: Mapping[str, Any]) -> SessionConfig:
 
     return SessionConfig(
         features=FeatureConfig(
+            keypoint_method=str(merged["keypoint_method"]),
+            max_keypoints=integer("max_keypoints"),
             keypoint_voxel=number("keypoint_voxel"),
             normal_radius=number("normal_radius"),
             fpfh_radius=number("fpfh_radius"),
@@ -129,7 +136,16 @@ def session_config(values: Mapping[str, Any]) -> SessionConfig:
         submap_radius=number("submap_radius"),
         min_points=integer("min_points"),
         motion_prediction=bool(merged["motion_prediction"]),
+        coast_on_reject=bool(merged["coast_on_reject"]),
+        initial_transform=sensor_extrinsic(merged),
     )
+
+
+def sensor_extrinsic(values: Mapping[str, Any]) -> np.ndarray:
+    """``T_base_lidar`` from ``lidar_x/y/z/yaw``. The map frame is ``base_link`` at the first scan."""
+    merged = {**DEFAULTS, **values}
+    translation = [float(merged["lidar_x"]), float(merged["lidar_y"]), float(merged["lidar_z"])]
+    return make_transform(yaw_rotation(float(merged["lidar_yaw"])), translation)
 
 
 def load_node_parameters(paths: list[Path], node: str) -> dict[str, Any]:

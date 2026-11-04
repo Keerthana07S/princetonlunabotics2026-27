@@ -1,4 +1,25 @@
 # Keep map_reliable in sync with config/mapping.yaml.
+# Foxglove (the default): foxglove_bridge serves ROS topics on ws://localhost:8765,
+# and foxglove_helper adds /viz/* topics. Open config/foxglove/lunar_mapping.json as the layout.
+foxglove_bridge:
+  ros__parameters:
+    port: 8765
+    address: 0.0.0.0
+    # One map or camera frame can be several MB; the 10 MB default drops frames.
+    send_buffer_limit: 100000000
+    # Quantized compression would corrupt the packed rgb field of /viz/map.
+    point_cloud_compression_topic_denylist: ['.*']
+foxglove_helper:
+  ros__parameters:
+    map_topic: /mapping/global_map
+    map_reliable: true
+    low_confidence: 0.4
+    high_confidence: 1.5
+    pose_topic: /mapping/rover_pose
+    ground_truth_topic: /sim/ground_truth_pose
+    ground_truth_relative: true
+    path_spacing: 0.05
+# Viser (visualizer:=viser) on http://localhost:8080.
 mapping_visualizer:
   ros__parameters:
     host: 0.0.0.0

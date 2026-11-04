@@ -33,6 +33,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3-wheel \
         ros-humble-cv-bridge \
         ros-humble-diagnostic-msgs \
+        ros-humble-foxglove-bridge \
         ros-humble-launch-ros \
         ros-humble-nav-msgs \
         ros-humble-rmw-cyclonedds-cpp \

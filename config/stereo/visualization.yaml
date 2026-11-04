@@ -1,0 +1,16 @@
+# Stereo overrides for config/visualization.yaml.
+foxglove_helper:
+  ros__parameters:
+    ground_truth_topic: /ground_truth/pose
+    ground_truth_relative: true
+    # Used by lac_view.launch.py, which has no mapping node, to place the stereo cloud on the rover.
+    sensor_mount: [0.279846, 0.081096, 0.130731]
+mapping_visualizer:
+  ros__parameters:
+    ground_truth_topic: /ground_truth/pose
+    ground_truth_relative: true
+    image_topic: /camera/left/image_raw
+    point_size: 0.04
+    age_horizon_s: 60.0
+    # Where lac_view.launch.py draws the live stereo cloud: the LAC front-left camera mount.
+    live_cloud_mount: [0.279846, 0.081096, 0.130731]
