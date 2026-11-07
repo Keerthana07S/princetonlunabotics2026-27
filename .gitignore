@@ -11,3 +11,4 @@ bags/*
 *.bag
 *.db3
 .venv/
+.vscode/
