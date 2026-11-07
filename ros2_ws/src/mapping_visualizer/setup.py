@@ -24,6 +24,7 @@ setup(
         "console_scripts": [
             "viser_visualizer = mapping_visualizer.nodes.viser_node:main",
             "foxglove_helper = mapping_visualizer.nodes.foxglove_helper_node:main",
+            "boulder_clipper = mapping_visualizer.nodes.boulder_clipper_node:main",
         ],
     },
 )

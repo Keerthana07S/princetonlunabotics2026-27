@@ -19,6 +19,19 @@ Sensor streams use the default sensor QoS profile: best effort, keep last, depth
 | `/viz/ground_truth_path`, `/viz/estimated_path` | `nav_msgs/Path` | reliable, depth 1 | foxglove_helper, map frame, a pose every 0.05 m. Ground truth is relative to its first pose |
 | `/viz/ground_truth_pose` | `geometry_msgs/PoseStamped` | reliable, depth 10 | foxglove_helper, ground truth in the map frame |
 
+The boulder traverse viewer (`boulder_clipper.launch.py`) publishes its own topics, all in the `map` frame, which is the CSV world frame:
+
+| Topic | Type | QoS | Publisher |
+| --- | --- | --- | --- |
+| `/boulders/associations` | `visualization_msgs/MarkerArray` LINE_LIST | reliable, depth 10 | boulder_clipper. Namespaces `kept_correct`, `kept_wrong`, `dropped_correct`, `dropped_wrong` |
+| `/boulders/detections` | `visualization_msgs/MarkerArray` SPHERE_LIST | reliable, depth 10 | boulder_clipper. `predicted` (before correction), `corrected`, `logged` (CSV world positions) |
+| `/boulders/landmarks` | `visualization_msgs/MarkerArray` | reliable, depth 10 | boulder_clipper. `landmarks` before this frame's update, `ground_truth_boulders`, and `labels` with ground-truth identities |
+| `/boulders/truth_path`, `/boulders/odometry_path`, `/boulders/estimated_path` | `nav_msgs/Path` | reliable, depth 1 | boulder_clipper, one pose per detection frame |
+| `/boulders/status` | `diagnostic_msgs/DiagnosticStatus` | reliable, depth 10 | boulder_clipper. WARN when the frame's correction is rejected |
+| `/boulders/translation_error`, `/boulders/odometry_translation_error` | `std_msgs/Float64` | reliable, depth 10 | boulder_clipper, meters |
+
+It broadcasts `map` to `base_link` at the estimated pose and `map` to `truth_link` at the logged position.
+
 TF: `map` to `base_link`, and `base_link` to `lidar_link`. The mapping node publishes both. In the LAC viewer, which has no mapping node, `foxglove_helper` publishes `map` to `base_link` from ground truth and a static `base_link` to `lidar_link` at the camera mount.
 
 Names and frames are set in `config/`.

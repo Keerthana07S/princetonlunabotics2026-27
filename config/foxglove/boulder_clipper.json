@@ -1,0 +1,141 @@
+{
+  "configById": {
+    "3D!boulders": {
+      "cameraState": {
+        "perspective": true,
+        "distance": 12,
+        "phi": 40,
+        "thetaOffset": 45,
+        "targetOffset": [0, 0, 0],
+        "target": [0, 0, 0],
+        "targetOrientation": [0, 0, 0, 1],
+        "fovy": 45,
+        "near": 0.05,
+        "far": 5000
+      },
+      "followMode": "follow-position",
+      "followTf": "base_link",
+      "scene": { "enableStats": false, "backgroundColor": "#15171c" },
+      "transforms": { "labelSize": 0.12, "axisScale": 0.4 },
+      "topics": {
+        "/boulders/associations": {
+          "visible": true,
+          "namespaces": {
+            "kept_correct": { "visible": true },
+            "kept_wrong": { "visible": true },
+            "dropped_correct": { "visible": true },
+            "dropped_wrong": { "visible": false }
+          }
+        },
+        "/boulders/detections": {
+          "visible": true,
+          "namespaces": {
+            "predicted": { "visible": true },
+            "corrected": { "visible": true },
+            "logged": { "visible": false }
+          }
+        },
+        "/boulders/landmarks": {
+          "visible": true,
+          "namespaces": {
+            "landmarks": { "visible": true },
+            "ground_truth_boulders": { "visible": true },
+            "labels": { "visible": false }
+          }
+        },
+        "/boulders/truth_path": {
+          "visible": true,
+          "type": "line",
+          "lineWidth": 0.03,
+          "gradient": ["#2673f2ff", "#2673f2ff"]
+        },
+        "/boulders/odometry_path": {
+          "visible": true,
+          "type": "line",
+          "lineWidth": 0.03,
+          "gradient": ["#9a9a9aff", "#9a9a9aff"]
+        },
+        "/boulders/estimated_path": {
+          "visible": true,
+          "type": "line",
+          "lineWidth": 0.03,
+          "gradient": ["#f23333ff", "#f23333ff"]
+        }
+      },
+      "layers": {
+        "grid": {
+          "visible": true,
+          "frameLocked": true,
+          "label": "Grid",
+          "instanceId": "grid",
+          "layerId": "foxglove.Grid",
+          "frameId": "map",
+          "size": 60,
+          "divisions": 60,
+          "lineWidth": 1,
+          "color": "#248eff30",
+          "position": [0, 0, 1.2],
+          "rotation": [0, 0, 0]
+        }
+      },
+      "publish": {
+        "type": "point",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      },
+      "imageMode": {}
+    },
+    "RawMessages!boulderstatus": {
+      "topicPath": "/boulders/status",
+      "diffEnabled": false,
+      "diffMethod": "custom",
+      "diffTopicPath": "",
+      "showFullMessageForDiff": false,
+      "autoExpandMode": "all"
+    },
+    "Plot!bouldererror": {
+      "paths": [
+        {
+          "value": "/boulders/translation_error.data",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "CLIPPER-corrected error (m)",
+          "color": "#f23333"
+        },
+        {
+          "value": "/boulders/odometry_translation_error.data",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "odometry-only error (m)",
+          "color": "#9a9a9a"
+        }
+      ],
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "showLegend": true,
+      "legendDisplay": "floating",
+      "showPlotValuesInLegend": true,
+      "isSynced": true,
+      "xAxisVal": "timestamp",
+      "sidebarDimension": 240
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "playbackConfig": { "speed": 1 },
+  "layout": {
+    "direction": "row",
+    "first": "3D!boulders",
+    "second": {
+      "direction": "column",
+      "first": "RawMessages!boulderstatus",
+      "second": "Plot!bouldererror",
+      "splitPercentage": 60
+    },
+    "splitPercentage": 68
+  }
+}

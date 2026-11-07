@@ -153,6 +153,22 @@ ros2 launch mapping_visualizer lac_view.launch.py log:=/workspace/logs/example_b
 
 `--stereo` also writes the stereo clouds to `/lidar/points`, so playback needs no stereo matching; pass `stereo:=false` to the viewer in that case so the clouds are not published twice. The example log converts in about 40 s to a 117 MiB bag holding 60 image pairs, 60 clouds, and 1182 pose and IMU samples over 59 s. If you leave out the output path, the bag goes next to the log. `--all-rows` keeps the rows before the first image, and `software/pointclouds/lac_to_ros2bag.py` is the same converter.
 
+## Boulder traverses
+
+`traverse_*.csv` rows are `frame,x,y,z,detections,boulders`: the rover position and the detected boulder centroids, both in the world frame, with no heading. `pointcloud_processing.boulder_association` treats the boulders as landmarks. It drives a drifting odometry estimate along the logged path, pairs each frame's detections with nearby map landmarks, keeps CLIPPER's consistent set, and fits a yaw-and-translation correction. Ground-truth boulder identities come from clustering all detections within 0.15 m, so every candidate pair can be scored as correct or wrong.
+
+```bash
+python3 /workspace/scripts/run_boulder_benchmark.py "/workspace/traverse_1 (1).csv"
+```
+
+writes `logs/boulder_benchmark_<name>.jsonl` and `_summary.json`. To watch a traverse in Foxglove:
+
+```bash
+ros2 launch mapping_visualizer boulder_clipper.launch.py csv:="/workspace/traverse_1 (1).csv" rate:=5.0
+```
+
+Open `config/foxglove/boulder_clipper.json`. Playback starts when Foxglove subscribes. `/boulders/associations` draws each candidate pair from the detection (at the predicted pose) to the landmark, in four namespaces: `kept_correct` (green), `kept_wrong` (red), `dropped_correct` (orange), and `dropped_wrong` (grey, hidden by default). `/boulders/status` has the per-frame counts and the accept or reject reason, and the plot compares the corrected and odometry-only errors. `start_frame:=3000` skips ahead, `seed:=` changes the odometry noise, and `correct:=false` runs odometry only.
+
 ## Unitree L2
 
 `ros2 run lidar_interface unitree_adapter` subscribes to `/unilidar/cloud` and republishes `/lidar/points`. It does not link the vendor SDK. To try the upstream ROS 2 package on Humble:
